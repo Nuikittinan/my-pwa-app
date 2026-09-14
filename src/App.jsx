@@ -13,7 +13,7 @@ function App() {
 
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1>📱 My First PWA App</h1>
+      <h1>📱 My name is Nui this is my First PWA App</h1>
       <p>รองรับการใช้งานแบบ Offline และกด Install ติดตั้งลงเครื่องได้!</p>
       
       <div style={{ marginBottom: '10px' }}>
