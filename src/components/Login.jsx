@@ -49,7 +49,7 @@ export default function Login({ onLoginSuccess }) {
         }}
       >
         <h1 style={{ color: '#fff', fontSize: 22, margin: '0 0 4px 0', textAlign: 'center' }}>
-          💧 ประปาหมู่บ้าน XXX
+          💧 ประปาหมู่บ้าน
         </h1>
         <p style={{ color: '#999', margin: '0 0 20px 0', textAlign: 'center', fontSize: 14 }}>
           เข้าสู่ระบบเพื่อใช้งาน
