@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { fileToDataUrl, getBillsByHouseId, getHouseById, savePaymentSlip } from '../utils/db';
+import { fileToDataUrl, getBillsByHouseId, getHouseById, getSettings, savePaymentSlip } from '../utils/db';
 
 export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
   const [house, setHouse] = useState(null);
   const [bills, setBills] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const latestBill = bills[0];
@@ -13,9 +14,14 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
 
     async function loadData() {
       setLoading(true);
-      const [houseData, billList] = await Promise.all([getHouseById(houseId), getBillsByHouseId(houseId)]);
+      const [houseData, billList, billingSettings] = await Promise.all([
+        getHouseById(houseId),
+        getBillsByHouseId(houseId),
+        getSettings(),
+      ]);
       if (!mounted) return;
       setHouse(houseData);
+      setSettings(billingSettings);
       setBills(
         [...billList].sort((a, b) => new Date(b.recordedAt || 0) - new Date(a.recordedAt || 0)),
       );
@@ -81,7 +87,7 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
             <div className="payment-box">
               <h3>ชำระผ่านพร้อมเพย์</h3>
               <img
-                src={`https://promptpay.io/${latestBill.promptpayNo}/${latestBill.amount}.png`}
+                src={`https://promptpay.io/${settings?.promptpayNo || latestBill.promptpayNo}/${latestBill.amount}.png`}
                 alt="PromptPay QR Code"
               />
               <label className="file-button wide">
@@ -90,7 +96,11 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
               </label>
               {latestBill.slipImage && (
                 <a href={latestBill.slipImage} target="_blank" rel="noreferrer">
-                  ดูสลิปที่ส่งล่าสุด
+                  <img
+                    src={latestBill.slipImage}
+                    alt="สลิปที่ส่งล่าสุด"
+                    style={{ maxWidth: 160, borderRadius: 8, marginTop: 8 }}
+                  />
                 </a>
               )}
             </div>

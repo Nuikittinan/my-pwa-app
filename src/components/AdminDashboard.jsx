@@ -118,7 +118,11 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
                   <td>
                     {bill.slipImage ? (
                       <a href={bill.slipImage} target="_blank" rel="noreferrer">
-                        เปิดสลิป
+                        <img
+                          src={bill.slipImage}
+                          alt="สลิปโอนเงิน"
+                          style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }}
+                        />
                       </a>
                     ) : (
                       <span className="muted">ไม่มี</span>

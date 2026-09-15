@@ -83,6 +83,23 @@ export async function getSettings() {
   return toSettings(data);
 }
 
+export async function updateSettings({ month, ratePerUnit, baseFee, promptpayNo }) {
+  const payload = {};
+  if (month !== undefined) payload.month = month.trim();
+  if (ratePerUnit !== undefined) payload.rate_per_unit = Number(ratePerUnit) || 0;
+  if (baseFee !== undefined) payload.base_fee = Number(baseFee) || 0;
+  if (promptpayNo !== undefined) payload.promptpay_no = promptpayNo.trim();
+
+  const { data, error } = await supabase
+    .from('settings')
+    .update(payload)
+    .eq('id', 'billing')
+    .select()
+    .single();
+  throwIfError(error, 'บันทึกการตั้งค่าไม่สำเร็จ');
+  return toSettings(data);
+}
+
 // ---------- Generic getAll (ตอนนี้ใช้จริงแค่ 'houses' แต่เผื่อไว้ทั้งหมด) ----------
 
 export async function getAll(storeName) {
