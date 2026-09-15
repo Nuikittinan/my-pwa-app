@@ -33,7 +33,7 @@ const seedHouses = [
     houseNo: '842/5',
     ownerName: 'กิตตินันท์ อ้นสันเทียะ',
     phone: '061-030-4695',
-    password: '044263074',
+    password: '1234',
     lastMeter: 100,
   },
 ];
