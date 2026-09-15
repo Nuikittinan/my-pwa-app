@@ -27,7 +27,7 @@ export default function AdminDashboard() {
         paddingBottom: '16px' 
       }}>
         <h1 style={{ margin: 0, color: '#ffffff', fontSize: '28px' }}>
-          📊 ประปาหมู่บ้าน XXX
+          📊 ประปาหมู่บ้าน
         </h1>
         <p style={{ margin: '8px 0 0 0', color: '#b0b0b0', fontSize: '16px' }}>
           <strong>รอบบิล:</strong> {summary.month}
