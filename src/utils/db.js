@@ -28,6 +28,14 @@ const seedHouses = [
     password: '1234',
     lastMeter: 174,
   },
+  {
+    id: 'house-994',
+    houseNo: '842/5',
+    ownerName: 'กิตตินันท์ อ้นสันเทียะ',
+    phone: '061-030-4695',
+    password: '044263074',
+    lastMeter: 100,
+  },
 ];
 
 const seedAdmins = [
