@@ -111,6 +111,41 @@ export async function getHouseById(id) {
   return toHouse(data);
 }
 
+export async function addHouse({ houseNo, ownerName, phone, password, lastMeter }) {
+  const payload = {
+    house_no: houseNo.trim(),
+    owner_name: ownerName.trim(),
+    phone: phone?.trim() || null,
+    password: password?.trim() || '1234',
+    last_meter: Number(lastMeter) || 0,
+  };
+  const { data, error } = await supabase.from('houses').insert(payload).select().single();
+  if (error?.code === '23505') throw new Error('มีเลขที่บ้านนี้อยู่แล้ว');
+  throwIfError(error, 'เพิ่มบ้านไม่สำเร็จ');
+  return toHouse(data);
+}
+
+export async function updateHouse(id, { houseNo, ownerName, phone, password, lastMeter }) {
+  const payload = {};
+  if (houseNo !== undefined) payload.house_no = houseNo.trim();
+  if (ownerName !== undefined) payload.owner_name = ownerName.trim();
+  if (phone !== undefined) payload.phone = phone?.trim() || null;
+  if (password !== undefined && password.trim()) payload.password = password.trim();
+  if (lastMeter !== undefined) payload.last_meter = Number(lastMeter) || 0;
+
+  const { data, error } = await supabase.from('houses').update(payload).eq('id', id).select().single();
+  if (error?.code === '23505') throw new Error('มีเลขที่บ้านนี้อยู่แล้ว');
+  throwIfError(error, 'แก้ไขข้อมูลบ้านไม่สำเร็จ');
+  return toHouse(data);
+}
+
+export async function deleteHouse(id) {
+  // ลบบิลของบ้านนี้ก่อน (กันกรณี on delete cascade ยังไม่ทำงานตามที่คาด)
+  await supabase.from('bills').delete().eq('house_id', id);
+  const { error } = await supabase.from('houses').delete().eq('id', id);
+  throwIfError(error, 'ลบบ้านไม่สำเร็จ');
+}
+
 export async function getHouseByHouseNo(houseNo) {
   const { data, error } = await supabase
     .from('houses')

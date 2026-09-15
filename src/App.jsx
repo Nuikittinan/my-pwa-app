@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import AdminDashboard from './components/AdminDashboard';
 import AdminMeterEntry from './components/AdminMeterEntry';
+import AdminHouses from './components/AdminHouses';
 import UserDashboard from './components/UserDashboard';
 import Login from './components/Login';
 import { getSession, initializeAppData, logout } from './utils/auth';
@@ -76,6 +77,9 @@ function App() {
         <button className={activeTab === 'meter' ? 'active' : ''} onClick={() => setActiveTab('meter')}>
           จดมิเตอร์
         </button>
+        <button className={activeTab === 'houses' ? 'active' : ''} onClick={() => setActiveTab('houses')}>
+          จัดการลูกบ้าน
+        </button>
       </nav>
 
       <main className="app-main">
@@ -83,6 +87,7 @@ function App() {
           <AdminDashboard refreshKey={refreshKey} onDataChange={refreshData} />
         )}
         {activeTab === 'meter' && <AdminMeterEntry onSaved={refreshData} />}
+        {activeTab === 'houses' && <AdminHouses onDataChange={refreshData} />}
       </main>
     </div>
   );
