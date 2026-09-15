@@ -8,15 +8,15 @@ export default function Login({ onLoginSuccess }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const session =
         mode === 'admin'
-          ? loginAdmin(idValue, password)
-          : loginResident(idValue, password);
+          ? await loginAdmin(idValue, password)
+          : await loginResident(idValue, password);
       onLoginSuccess(session);
     } catch (err) {
       setError(err.message);

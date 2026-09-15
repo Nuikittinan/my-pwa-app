@@ -9,11 +9,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'My Awesome PWA',
-        short_name: 'MyPWA',
-        description: 'เว็บแอป PWA ตัวแรกของฉัน',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        name: 'ระบบประปาหมู่บ้าน',
+        short_name: 'ประปาหมู่บ้าน',
+        description: 'ระบบจดมิเตอร์ ออกบิล และตรวจชำระเงินแบบ offline-first',
+        theme_color: '#0f172a',
+        background_color: '#f5f7fb',
         display: 'standalone',
         icons: [
           {

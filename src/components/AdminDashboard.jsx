@@ -1,95 +1,172 @@
-import React from 'react'
+import { useEffect, useState } from 'react';
+import { exportDatabase, getDashboardData, importDatabase, updateBillStatus } from '../utils/db';
 
-export default function AdminDashboard() {
-  const summary = {
-    month: 'กันยายน 2569',
-    totalHouses: 250,
-    recorded: 220,
-    pending: 30,
-    totalBilled: 35400,
-    totalPaid: 28500,
-    totalUnpaid: 6900
-  }
+export default function AdminDashboard({ refreshKey, onDataChange }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    getDashboardData()
+      .then((result) => {
+        if (mounted) setData(result);
+      })
+      .catch((err) => {
+        if (mounted) setError(err.message || 'โหลดข้อมูลไม่สำเร็จ');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
+
+  const handleApprove = async (billId) => {
+    await updateBillStatus(billId, 'paid');
+    onDataChange();
+  };
+
+  const handleReject = async (billId) => {
+    await updateBillStatus(billId, 'unpaid');
+    onDataChange();
+  };
+
+  const handleExport = async () => {
+    const payload = await exportDatabase();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `water-db-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const payload = JSON.parse(await file.text());
+    await importDatabase(payload);
+    event.target.value = '';
+    onDataChange();
+  };
+
+  if (error) return <div className="panel danger">{error}</div>;
+  if (!data) return <div className="panel">กำลังโหลดข้อมูล...</div>;
+
+  const { summary, bills } = data;
 
   return (
-    <div style={{ 
-      padding: '24px', 
-      fontFamily: 'sans-serif', 
-      backgroundColor: '#121212', // กำหนดพื้นหลังเข้มให้เนียนตา
-      minHeight: '100vh',
-      boxSizing: 'border-box'
-    }}>
-      {/* ส่วนหัวข้อ - กำหนดสีตัวหนังสือให้ชัดเจน */}
-      <header style={{ 
-        marginBottom: '24px', 
-        textAlign: 'left', 
-        borderBottom: '1px solid #333', 
-        paddingBottom: '16px' 
-      }}>
-        <h1 style={{ margin: 0, color: '#ffffff', fontSize: '28px' }}>
-          📊 ประปาหมู่บ้าน
-        </h1>
-        <p style={{ margin: '8px 0 0 0', color: '#b0b0b0', fontSize: '16px' }}>
-          <strong>รอบบิล:</strong> {summary.month}
-        </p>
-      </header>
-
-      {/* การ์ดสรุปข้อมูล */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-        gap: '16px'
-      }}>
-        <div style={cardStyle('#ffffff', '#1a1a1a')}>
-          <div style={titleStyle}>🏠 จำนวนบ้านทั้งหมด</div>
-          <div style={numberStyle}>{summary.totalHouses}</div>
+    <section className="stack">
+      <div className="section-heading">
+        <div>
+          <h1>สรุปค่าน้ำประปา</h1>
+          <p>รอบบิล {summary.month}</p>
         </div>
-
-        <div style={cardStyle('#e6f4ea', '#137333')}>
-          <div style={titleStyle}>✅ จดมิเตอร์แล้ว</div>
-          <div style={numberStyle}>{summary.recorded}</div>
-        </div>
-
-        <div style={cardStyle('#fef7e0', '#b06000')}>
-          <div style={titleStyle}>⏳ ยังไม่ได้จด</div>
-          <div style={numberStyle}>{summary.pending}</div>
-        </div>
-
-        <div style={cardStyle('#e8f0fe', '#1a73e8')}>
-          <div style={titleStyle}>💰 ยอดเรียกเก็บทั้งหมด</div>
-          <div style={numberStyle}>{summary.totalBilled.toLocaleString()} ฿</div>
-        </div>
-
-        <div style={cardStyle('#e6f4ea', '#137333')}>
-          <div style={titleStyle}>✅ ชำระเงินแล้ว</div>
-          <div style={numberStyle}>{summary.totalPaid.toLocaleString()} ฿</div>
-        </div>
-
-        <div style={cardStyle('#fce8e6', '#c5221f')}>
-          <div style={titleStyle}>❌ ค้างชำระ</div>
-          <div style={numberStyle}>{summary.totalUnpaid.toLocaleString()} ฿</div>
+        <div className="actions">
+          <button className="secondary" onClick={handleExport}>
+            สำรองข้อมูล
+          </button>
+          <label className="file-button">
+            นำเข้าข้อมูล
+            <input type="file" accept="application/json" onChange={handleImport} />
+          </label>
         </div>
       </div>
+
+      <div className="metric-grid">
+        <Metric label="บ้านทั้งหมด" value={summary.totalHouses} />
+        <Metric label="จดมิเตอร์แล้ว" value={summary.recorded} />
+        <Metric label="ยังไม่ได้จด" value={summary.pending} />
+        <Metric label="รอตรวจสลิป" value={summary.waitingReview} />
+        <Metric label="ยอดเรียกเก็บ" value={`${summary.totalBilled.toLocaleString()} บาท`} />
+        <Metric label="ค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} บาท`} tone="warning" />
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">
+          <h2>รายการบิล</h2>
+          <span>{bills.length} รายการ</span>
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>บ้าน</th>
+                <th>มิเตอร์</th>
+                <th>หน่วย</th>
+                <th>ยอด</th>
+                <th>สถานะ</th>
+                <th>หลักฐาน</th>
+                <th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bills.map((bill) => (
+                <tr key={bill.id}>
+                  <td>
+                    <strong>{bill.house?.houseNo}</strong>
+                    <small>{bill.house?.ownerName}</small>
+                  </td>
+                  <td>
+                    {bill.prevMeter} → {bill.currMeter}
+                  </td>
+                  <td>{bill.units}</td>
+                  <td>{bill.amount.toLocaleString()} บาท</td>
+                  <td>
+                    <Status status={bill.status} />
+                  </td>
+                  <td>
+                    {bill.slipImage ? (
+                      <a href={bill.slipImage} target="_blank" rel="noreferrer">
+                        เปิดสลิป
+                      </a>
+                    ) : (
+                      <span className="muted">ไม่มี</span>
+                    )}
+                  </td>
+                  <td>
+                    {bill.status === 'pending' ? (
+                      <div className="row-actions">
+                        <button onClick={() => handleApprove(bill.id)}>อนุมัติ</button>
+                        <button className="secondary" onClick={() => handleReject(bill.id)}>
+                          ตีกลับ
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {bills.length === 0 && (
+                <tr>
+                  <td colSpan="7" className="empty">
+                    ยังไม่มีบิลรอบนี้ ให้ไปที่เมนูจดมิเตอร์เพื่อสร้างบิล
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value, tone = 'normal' }) {
+  return (
+    <div className={`metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
-  )
+  );
 }
 
-const cardStyle = (bgColor, textColor) => ({
-  backgroundColor: bgColor,
-  color: textColor,
-  padding: '16px',
-  borderRadius: '12px',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
-  textAlign: 'center'
-})
-
-const titleStyle = {
-  fontSize: '14px',
-  fontWeight: '600'
-}
-
-const numberStyle = {
-  fontSize: '22px',
-  fontWeight: 'bold',
-  marginTop: '8px'
+function Status({ status }) {
+  const label = {
+    unpaid: 'ยังไม่ได้ชำระ',
+    pending: 'รอตรวจสอบ',
+    paid: 'ชำระแล้ว',
+  }[status];
+  return <span className={`status ${status}`}>{label}</span>;
 }

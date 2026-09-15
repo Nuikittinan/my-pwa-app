@@ -1,72 +1,138 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { fileToDataUrl, getAll, getSettings, saveMeterReading } from '../utils/db';
+import { calculateWaterBill } from '../utils/calculate';
 
-export default function AdminMeterEntry({ houseData }) {
-  const [prevMeter] = useState(houseData?.prevMeter || 120);
+export default function AdminMeterEntry({ onSaved }) {
+  const [houses, setHouses] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [selectedHouseId, setSelectedHouseId] = useState('');
   const [currMeter, setCurrMeter] = useState('');
   const [meterImage, setMeterImage] = useState(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  // คำนวณหน่วยอัตโนมัติ
-  const unitsUsed = currMeter ? Math.max(0, currMeter - prevMeter) : 0;
-  const ratePerUnit = 10;
-  const totalAmount = unitsUsed * ratePerUnit;
+  useEffect(() => {
+    Promise.all([getAll('houses'), getSettings()]).then(([houseList, billingSettings]) => {
+      const sorted = [...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th'));
+      setHouses(sorted);
+      setSettings(billingSettings);
+      setSelectedHouseId(sorted[0]?.id || '');
+    });
+  }, []);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) setMeterImage(URL.createObjectURL(file));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const dataToSave = {
-      houseId: houseData.id,
-      prevMeter,
-      currMeter: Number(currMeter),
-      unitsUsed,
-      totalAmount,
-      meterImage,
-      status: 'unpaid'
+  const selectedHouse = houses.find((house) => house.id === selectedHouseId);
+  const estimate = useMemo(() => {
+    if (!selectedHouse || !settings) return null;
+    const result = calculateWaterBill(selectedHouse.lastMeter, currMeter);
+    if (result.error) return result;
+    return {
+      ...result,
+      totalAmount: result.unitsUsed * settings.ratePerUnit + settings.baseFee,
+      waterFee: result.unitsUsed * settings.ratePerUnit,
+      baseFee: settings.baseFee,
     };
-    console.log('บันทึกข้อมูล:', dataToSave);
-    alert('บันทึกค่าน้ำเรียบร้อยแล้ว');
+  }, [currMeter, selectedHouse, settings]);
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) setMeterImage(await fileToDataUrl(file));
   };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setSaving(true);
+
+    try {
+      const bill = await saveMeterReading({
+        houseId: selectedHouseId,
+        currMeter,
+        meterImage,
+      });
+      setMessage(`บันทึกบิลบ้าน ${bill.house.houseNo} ยอด ${bill.amount.toLocaleString()} บาทแล้ว`);
+      setCurrMeter('');
+      setMeterImage(null);
+      const houseList = await getAll('houses');
+      setHouses([...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th')));
+      onSaved();
+    } catch (err) {
+      setError(err.message || 'บันทึกข้อมูลไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!settings) return <div className="panel">กำลังโหลดข้อมูลบ้าน...</div>;
 
   return (
-    <div style={{ padding: 16, border: '1px solid #ccc', borderRadius: 8, maxWidth: 400 }}>
-      <h3>📝 จดมิเตอร์: บ้านเลขที่ {houseData?.houseNo || '99/1'}</h3>
-      <p>👤 เจ้าของ: {houseData?.ownerName || 'สมชาย ใจดี'} ({houseData?.phone || '081-234-5678'})</p>
-      
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 10 }}>
-          <label>📷 ถ่ายรูปมิเตอร์: </label>
-          <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} />
-          {meterImage && <img src={meterImage} alt="Meter" style={{ width: '100%', marginTop: 8 }} />}
+    <section className="stack">
+      <div className="section-heading">
+        <div>
+          <h1>จดมิเตอร์และสร้างบิล</h1>
+          <p>ระบบจะบันทึกลง IndexedDB และอัปเดตเลขมิเตอร์ล่าสุดของบ้านทันที</p>
         </div>
+      </div>
 
-        <div style={{ marginBottom: 10 }}>
-          <label>🔢 เลขมิเตอร์เดือนก่อน: </label>
-          <input type="number" value={prevMeter} disabled style={{ width: 80 }} />
-        </div>
+      <form className="panel form-grid" onSubmit={handleSubmit}>
+        <label>
+          บ้านเลขที่
+          <select value={selectedHouseId} onChange={(event) => setSelectedHouseId(event.target.value)}>
+            {houses.map((house) => (
+              <option key={house.id} value={house.id}>
+                {house.houseNo} - {house.ownerName}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        <div style={{ marginBottom: 10 }}>
-          <label>🔢 เลขมิเตอร์ปัจจุบัน: </label>
-          <input 
-            type="number" 
-            value={currMeter} 
-            onChange={(e) => setCurrMeter(e.target.value)} 
-            required 
-            style={{ width: 80 }}
+        {selectedHouse && (
+          <div className="house-card">
+            <strong>{selectedHouse.ownerName}</strong>
+            <span>{selectedHouse.phone}</span>
+            <span>เลขมิเตอร์ล่าสุด: {selectedHouse.lastMeter}</span>
+          </div>
+        )}
+
+        <label>
+          เลขมิเตอร์ปัจจุบัน
+          <input
+            type="number"
+            min={selectedHouse?.lastMeter || 0}
+            value={currMeter}
+            onChange={(event) => setCurrMeter(event.target.value)}
+            required
           />
+        </label>
+
+        <label>
+          รูปมิเตอร์
+          <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} />
+        </label>
+
+        {meterImage && <img className="preview-image" src={meterImage} alt="รูปมิเตอร์ที่เลือก" />}
+
+        <div className="estimate">
+          {estimate?.error ? (
+            <span className="danger-text">{estimate.error}</span>
+          ) : (
+            <>
+              <span>จำนวนหน่วย: <strong>{estimate?.unitsUsed || 0}</strong></span>
+              <span>ค่าน้ำ: <strong>{(estimate?.waterFee || 0).toLocaleString()}</strong> บาท</span>
+              <span>ค่าบริการ: <strong>{settings.baseFee.toLocaleString()}</strong> บาท</span>
+              <span>รวมชำระ: <strong>{(estimate?.totalAmount || 0).toLocaleString()}</strong> บาท</span>
+            </>
+          )}
         </div>
 
-        <div style={{ background: '#f0f0f0', padding: 10, borderRadius: 5, marginBottom: 10 }}>
-          <div>🧮 ปริมาณที่ใช้: <strong>{unitsUsed}</strong> หน่วย</div>
-          <div>💰 ยอดรวมค่าน้ำ: <strong>{totalAmount.toLocaleString()}</strong> บาท</div>
-        </div>
+        {error && <div className="notice error">{error}</div>}
+        {message && <div className="notice success">{message}</div>}
 
-        <button type="submit" style={{ padding: '8px 16px', background: '#007bff', color: '#fff', border: 'none', borderRadius: 4 }}>
-          💾 บันทึกและสร้างใบแจ้งหนี้
+        <button type="submit" disabled={saving || !selectedHouse}>
+          {saving ? 'กำลังบันทึก...' : 'บันทึกและสร้างบิล'}
         </button>
       </form>
-    </div>
+    </section>
   );
 }
