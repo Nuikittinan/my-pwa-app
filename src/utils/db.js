@@ -1,280 +1,255 @@
-const DB_NAME = 'village_water_pwa';
-const DB_VERSION = 1;
-const MONTH_LABEL = 'กันยายน 2569';
-const PROMPTPAY_NO = '0812345678';
+// ชั้นข้อมูลของแอป — เดิมเก็บใน IndexedDB (เครื่องใครเครื่องมัน)
+// ตอนนี้ย้ายไปเก็บใน Supabase (Postgres กลางบนคลาวด์) แทน
+// เพื่อให้ผู้ดูแลและลูกบ้านเห็นข้อมูลเดียวกันไม่ว่าจะเปิดจากอุปกรณ์ไหน
+//
+// หมายเหตุสำคัญ: ฟังก์ชันทุกตัวที่ export จากไฟล์นี้ "ชื่อและรูปแบบข้อมูลที่คืนค่า
+// เหมือนเดิมทุกอย่าง" กับตอนใช้ IndexedDB ดังนั้น component อื่น (AdminDashboard,
+// AdminMeterEntry, UserDashboard, auth.js) ไม่ต้องแก้โค้ดเลย
 
-const seedHouses = [
-  {
-    id: 'house-991',
-    houseNo: '99/1',
-    ownerName: 'สมชาย ใจดี',
-    phone: '081-234-5678',
-    password: '1234',
-    lastMeter: 120,
-  },
-  {
-    id: 'house-992',
-    houseNo: '99/2',
-    ownerName: 'สมหญิง รักดี',
-    phone: '089-876-5432',
-    password: '1234',
-    lastMeter: 95,
-  },
-  {
-    id: 'house-993',
-    houseNo: '99/3',
-    ownerName: 'ธนา อยู่สุข',
-    phone: '086-111-2233',
-    password: '1234',
-    lastMeter: 174,
-  },
-  {
-    id: 'house-994',
-    houseNo: '842/5',
-    ownerName: 'กิตตินันท์ อ้นสันเทียะ',
-    phone: '061-030-4695',
-    password: '1234',
-    lastMeter: 100,
-  },
-];
+import { supabase } from './supabaseClient';
 
-const seedAdmins = [
-  {
-    id: 'admin-1',
-    username: 'admin',
-    password: 'admin123',
-    name: 'ผู้ดูแลระบบ',
-  },
-];
+const MONTH_LABEL_FALLBACK = 'กันยายน 2569';
 
-function requestToPromise(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+// ---------- ตัวแปลงข้อมูล: Postgres (snake_case) <-> รูปแบบที่แอปใช้ (camelCase) ----------
 
-function transactionDone(tx) {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-
-function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-export function openDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-
-      if (!db.objectStoreNames.contains('admins')) {
-        db.createObjectStore('admins', { keyPath: 'id' }).createIndex('username', 'username', {
-          unique: true,
-        });
-      }
-
-      if (!db.objectStoreNames.contains('houses')) {
-        const store = db.createObjectStore('houses', { keyPath: 'id' });
-        store.createIndex('houseNo', 'houseNo', { unique: true });
-      }
-
-      if (!db.objectStoreNames.contains('bills')) {
-        const store = db.createObjectStore('bills', { keyPath: 'id' });
-        store.createIndex('houseId', 'houseId', { unique: false });
-        store.createIndex('month', 'month', { unique: false });
-        store.createIndex('status', 'status', { unique: false });
-      }
-
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'id' });
-      }
-    };
-
-    request.onsuccess = async () => {
-      const db = request.result;
-      try {
-        await seedDatabase(db);
-        resolve(db);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function seedDatabase(db) {
-  const readTx = db.transaction('settings', 'readonly');
-  const seeded = await requestToPromise(readTx.objectStore('settings').get('seeded'));
-
-  if (!seeded) {
-    const tx = db.transaction(['admins', 'houses', 'settings'], 'readwrite');
-    const settings = tx.objectStore('settings');
-    const admins = tx.objectStore('admins');
-    const houses = tx.objectStore('houses');
-    seedAdmins.forEach((admin) => admins.put(admin));
-    seedHouses.forEach((house) => houses.put(house));
-    settings.put({
-      id: 'seeded',
-      value: true,
-      seededAt: new Date().toISOString(),
-    });
-    settings.put({
-      id: 'billing',
-      month: MONTH_LABEL,
-      ratePerUnit: 10,
-      baseFee: 20,
-      promptpayNo: PROMPTPAY_NO,
-    });
-    await transactionDone(tx);
-  }
-}
-
-export async function getSettings() {
-  const db = await openDatabase();
-  const tx = db.transaction('settings', 'readonly');
-  const settings = await requestToPromise(tx.objectStore('settings').get('billing'));
+function toHouse(row) {
+  if (!row) return null;
   return {
-    month: settings?.month || MONTH_LABEL,
-    ratePerUnit: settings?.ratePerUnit || 10,
-    baseFee: settings?.baseFee || 20,
-    promptpayNo: settings?.promptpayNo || PROMPTPAY_NO,
+    id: row.id,
+    houseNo: row.house_no,
+    ownerName: row.owner_name,
+    phone: row.phone,
+    password: row.password,
+    lastMeter: Number(row.last_meter),
   };
 }
 
+function toAdmin(row) {
+  if (!row) return null;
+  return { id: row.id, username: row.username, password: row.password, name: row.name };
+}
+
+function toBill(row, house) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    houseId: row.house_id,
+    month: row.month,
+    prevMeter: Number(row.prev_meter),
+    currMeter: Number(row.curr_meter),
+    units: Number(row.units),
+    waterFee: Number(row.water_fee),
+    baseFee: Number(row.base_fee),
+    amount: Number(row.amount),
+    status: row.status,
+    promptpayNo: row.promptpay_no,
+    meterImage: row.meter_image,
+    slipImage: row.slip_image,
+    recordedAt: row.recorded_at,
+    submittedAt: row.submitted_at,
+    paidAt: row.paid_at,
+    ...(house ? { house } : {}),
+  };
+}
+
+function toSettings(row) {
+  return {
+    month: row?.month || MONTH_LABEL_FALLBACK,
+    ratePerUnit: Number(row?.rate_per_unit ?? 10),
+    baseFee: Number(row?.base_fee ?? 20),
+    promptpayNo: row?.promptpay_no || '',
+  };
+}
+
+function throwIfError(error, fallbackMessage) {
+  if (error) throw new Error(error.message || fallbackMessage);
+}
+
+// ---------- คงชื่อฟังก์ชันนี้ไว้เพื่อ compatibility (auth.js เรียกตอนเปิดแอป) ----------
+// Supabase ไม่ต้อง "เปิดฐานข้อมูล" เหมือน IndexedDB จึงแค่ resolve เฉยๆ
+export async function openDatabase() {
+  return true;
+}
+
+// ---------- Settings ----------
+
+export async function getSettings() {
+  const { data, error } = await supabase
+    .from('settings')
+    .select('*')
+    .eq('id', 'billing')
+    .maybeSingle();
+  throwIfError(error, 'โหลดการตั้งค่าไม่สำเร็จ');
+  return toSettings(data);
+}
+
+// ---------- Generic getAll (ตอนนี้ใช้จริงแค่ 'houses' แต่เผื่อไว้ทั้งหมด) ----------
+
 export async function getAll(storeName) {
-  const db = await openDatabase();
-  return requestToPromise(db.transaction(storeName, 'readonly').objectStore(storeName).getAll());
+  if (storeName === 'houses') {
+    const { data, error } = await supabase.from('houses').select('*').order('house_no');
+    throwIfError(error, 'โหลดรายชื่อบ้านไม่สำเร็จ');
+    return data.map(toHouse);
+  }
+  if (storeName === 'bills') {
+    const { data, error } = await supabase.from('bills').select('*');
+    throwIfError(error, 'โหลดบิลไม่สำเร็จ');
+    return data.map((r) => toBill(r));
+  }
+  if (storeName === 'admins') {
+    const { data, error } = await supabase.from('admins').select('*');
+    throwIfError(error, 'โหลดข้อมูลผู้ดูแลไม่สำเร็จ');
+    return data.map(toAdmin);
+  }
+  throw new Error(`Unknown store: ${storeName}`);
 }
 
 export async function getHouseById(id) {
-  const db = await openDatabase();
-  return requestToPromise(db.transaction('houses', 'readonly').objectStore('houses').get(id));
+  if (!id) return null;
+  const { data, error } = await supabase.from('houses').select('*').eq('id', id).maybeSingle();
+  throwIfError(error, 'โหลดข้อมูลบ้านไม่สำเร็จ');
+  return toHouse(data);
 }
 
 export async function getHouseByHouseNo(houseNo) {
-  const db = await openDatabase();
-  const index = db.transaction('houses', 'readonly').objectStore('houses').index('houseNo');
-  return requestToPromise(index.get(houseNo.trim()));
+  const { data, error } = await supabase
+    .from('houses')
+    .select('*')
+    .eq('house_no', houseNo.trim())
+    .maybeSingle();
+  throwIfError(error, 'โหลดข้อมูลบ้านไม่สำเร็จ');
+  return toHouse(data);
 }
 
 export async function getAdminByUsername(username) {
-  const db = await openDatabase();
-  const index = db.transaction('admins', 'readonly').objectStore('admins').index('username');
-  return requestToPromise(index.get(username.trim()));
+  const { data, error } = await supabase
+    .from('admins')
+    .select('*')
+    .eq('username', username.trim())
+    .maybeSingle();
+  throwIfError(error, 'โหลดข้อมูลผู้ดูแลไม่สำเร็จ');
+  return toAdmin(data);
 }
 
 export async function getBillsByHouseId(houseId) {
-  const db = await openDatabase();
-  const index = db.transaction('bills', 'readonly').objectStore('bills').index('houseId');
-  return requestToPromise(index.getAll(houseId));
+  const { data, error } = await supabase
+    .from('bills')
+    .select('*')
+    .eq('house_id', houseId)
+    .order('recorded_at', { ascending: false });
+  throwIfError(error, 'โหลดบิลของบ้านไม่สำเร็จ');
+  return data.map((r) => toBill(r));
 }
 
 export async function getBillWithHouse(billId) {
-  const db = await openDatabase();
-  const tx = db.transaction(['bills', 'houses'], 'readonly');
-  const bill = await requestToPromise(tx.objectStore('bills').get(billId));
-  if (!bill) return null;
-  const house = await requestToPromise(tx.objectStore('houses').get(bill.houseId));
-  return { ...bill, house };
+  const { data, error } = await supabase
+    .from('bills')
+    .select('*, houses(*)')
+    .eq('id', billId)
+    .maybeSingle();
+  throwIfError(error, 'โหลดบิลไม่สำเร็จ');
+  if (!data) return null;
+  const { houses: houseRow, ...billRow } = data;
+  return toBill(billRow, toHouse(houseRow));
 }
 
 export async function saveMeterReading({ houseId, currMeter, meterImage }) {
-  const db = await openDatabase();
-  const settings = await getSettings();
-  const readTx = db.transaction(['houses', 'bills'], 'readonly');
-  const houseRequest = readTx.objectStore('houses').get(houseId);
-  const existingBillsRequest = readTx.objectStore('bills').index('houseId').getAll(houseId);
-  const house = await requestToPromise(houseRequest);
-
+  const house = await getHouseById(houseId);
   if (!house) throw new Error('ไม่พบบ้านที่เลือก');
+
   const current = Number(currMeter);
   if (!Number.isFinite(current)) throw new Error('กรุณากรอกเลขมิเตอร์ให้ถูกต้อง');
   if (current < house.lastMeter) throw new Error('เลขมิเตอร์ปัจจุบันต้องไม่น้อยกว่าเดือนก่อน');
 
+  const settings = await getSettings();
   const units = current - house.lastMeter;
   const waterFee = units * settings.ratePerUnit;
   const amount = waterFee + settings.baseFee;
-  const now = new Date().toISOString();
-  const existingBills = await requestToPromise(existingBillsRequest);
-  const currentMonthBill = existingBills.find((bill) => bill.month === settings.month);
 
-  const bill = {
-    id: currentMonthBill?.id || makeId('bill'),
-    houseId: house.id,
+  // เช็คว่ามีบิลของบ้านนี้ในรอบเดือนนี้อยู่แล้วหรือยัง (จดซ้ำ = แก้ไขของเดิม)
+  const { data: existingRow, error: findError } = await supabase
+    .from('bills')
+    .select('*')
+    .eq('house_id', houseId)
+    .eq('month', settings.month)
+    .maybeSingle();
+  throwIfError(findError, 'ตรวจสอบบิลเดิมไม่สำเร็จ');
+
+  const payload = {
+    house_id: houseId,
     month: settings.month,
-    prevMeter: house.lastMeter,
-    currMeter: current,
+    prev_meter: house.lastMeter,
+    curr_meter: current,
     units,
-    waterFee,
-    baseFee: settings.baseFee,
+    water_fee: waterFee,
+    base_fee: settings.baseFee,
     amount,
-    status: currentMonthBill?.status === 'paid' ? 'paid' : 'unpaid',
-    promptpayNo: settings.promptpayNo,
-    meterImage: meterImage || currentMonthBill?.meterImage || null,
-    slipImage: currentMonthBill?.slipImage || null,
-    recordedAt: now,
-    paidAt: currentMonthBill?.paidAt || null,
+    status: existingRow?.status === 'paid' ? 'paid' : 'unpaid',
+    promptpay_no: settings.promptpayNo,
+    meter_image: meterImage || existingRow?.meter_image || null,
+    slip_image: existingRow?.slip_image || null,
+    recorded_at: new Date().toISOString(),
+    paid_at: existingRow?.paid_at || null,
   };
 
-  const writeTx = db.transaction(['houses', 'bills'], 'readwrite');
-  writeTx.objectStore('bills').put(bill);
-  writeTx.objectStore('houses').put({ ...house, lastMeter: current });
-  await transactionDone(writeTx);
-  return { ...bill, house: { ...house, lastMeter: current } };
+  const { data: savedBill, error: billError } = existingRow
+    ? await supabase.from('bills').update(payload).eq('id', existingRow.id).select().single()
+    : await supabase.from('bills').insert(payload).select().single();
+  throwIfError(billError, 'บันทึกบิลไม่สำเร็จ');
+
+  const { error: houseError } = await supabase
+    .from('houses')
+    .update({ last_meter: current })
+    .eq('id', houseId);
+  throwIfError(houseError, 'อัปเดตเลขมิเตอร์ของบ้านไม่สำเร็จ');
+
+  return toBill(savedBill, { ...house, lastMeter: current });
 }
 
 export async function savePaymentSlip(billId, slipImage) {
-  const db = await openDatabase();
-  const bill = await requestToPromise(db.transaction('bills', 'readonly').objectStore('bills').get(billId));
-  if (!bill) throw new Error('ไม่พบบิล');
-
-  const updated = {
-    ...bill,
-    slipImage,
-    status: 'pending',
-    submittedAt: new Date().toISOString(),
-  };
-  const writeTx = db.transaction('bills', 'readwrite');
-  writeTx.objectStore('bills').put(updated);
-  await transactionDone(writeTx);
-  return updated;
+  const { data, error } = await supabase
+    .from('bills')
+    .update({
+      slip_image: slipImage,
+      status: 'pending',
+      submitted_at: new Date().toISOString(),
+    })
+    .eq('id', billId)
+    .select()
+    .single();
+  throwIfError(error, 'บันทึกสลิปไม่สำเร็จ');
+  return toBill(data);
 }
 
 export async function updateBillStatus(billId, status) {
-  const db = await openDatabase();
-  const bill = await requestToPromise(db.transaction('bills', 'readonly').objectStore('bills').get(billId));
-  if (!bill) throw new Error('ไม่พบบิล');
-
-  const updated = {
-    ...bill,
-    status,
-    paidAt: status === 'paid' ? new Date().toISOString() : null,
-  };
-  const writeTx = db.transaction('bills', 'readwrite');
-  writeTx.objectStore('bills').put(updated);
-  await transactionDone(writeTx);
-  return updated;
+  const { data, error } = await supabase
+    .from('bills')
+    .update({ status, paid_at: status === 'paid' ? new Date().toISOString() : null })
+    .eq('id', billId)
+    .select()
+    .single();
+  throwIfError(error, 'อัปเดตสถานะบิลไม่สำเร็จ');
+  return toBill(data);
 }
 
 export async function getDashboardData() {
-  const [houses, bills, settings] = await Promise.all([
-    getAll('houses'),
-    getAll('bills'),
+  const [housesResult, billsResult, settings] = await Promise.all([
+    supabase.from('houses').select('*').order('house_no'),
+    supabase.from('bills').select('*'),
     getSettings(),
   ]);
-  const monthBills = bills.filter((bill) => bill.month === settings.month);
-  const paidBills = monthBills.filter((bill) => bill.status === 'paid');
-  const unpaidBills = monthBills.filter((bill) => bill.status !== 'paid');
-  const billsWithHouses = monthBills
-    .map((bill) => ({ ...bill, house: houses.find((house) => house.id === bill.houseId) }))
-    .sort((a, b) => (a.house?.houseNo || '').localeCompare(b.house?.houseNo || '', 'th'));
+  throwIfError(housesResult.error, 'โหลดรายชื่อบ้านไม่สำเร็จ');
+  throwIfError(billsResult.error, 'โหลดบิลไม่สำเร็จ');
+
+  const houses = housesResult.data.map(toHouse);
+  const houseMap = new Map(houses.map((h) => [h.id, h]));
+  const monthBillRows = billsResult.data.filter((b) => b.month === settings.month);
+  const monthBills = monthBillRows.map((r) => toBill(r, houseMap.get(r.house_id)));
+  const paidBills = monthBills.filter((b) => b.status === 'paid');
+  const unpaidBills = monthBills.filter((b) => b.status !== 'paid');
+  const billsWithHouses = [...monthBills].sort((a, b) =>
+    (a.house?.houseNo || '').localeCompare(b.house?.houseNo || '', 'th')
+  );
 
   return {
     settings,
@@ -285,33 +260,93 @@ export async function getDashboardData() {
       totalHouses: houses.length,
       recorded: monthBills.length,
       pending: Math.max(0, houses.length - monthBills.length),
-      totalBilled: monthBills.reduce((sum, bill) => sum + bill.amount, 0),
-      totalPaid: paidBills.reduce((sum, bill) => sum + bill.amount, 0),
-      totalUnpaid: unpaidBills.reduce((sum, bill) => sum + bill.amount, 0),
-      waitingReview: monthBills.filter((bill) => bill.status === 'pending').length,
+      totalBilled: monthBills.reduce((sum, b) => sum + b.amount, 0),
+      totalPaid: paidBills.reduce((sum, b) => sum + b.amount, 0),
+      totalUnpaid: unpaidBills.reduce((sum, b) => sum + b.amount, 0),
+      waitingReview: monthBills.filter((b) => b.status === 'pending').length,
     },
   };
 }
 
 export async function exportDatabase() {
-  const [admins, houses, bills, settings] = await Promise.all([
-    getAll('admins'),
-    getAll('houses'),
-    getAll('bills'),
-    getAll('settings'),
+  const [admins, houses, bills, settingsRows] = await Promise.all([
+    supabase.from('admins').select('*').then((r) => r.data || []),
+    supabase.from('houses').select('*').then((r) => r.data || []),
+    supabase.from('bills').select('*').then((r) => r.data || []),
+    supabase.from('settings').select('*').then((r) => r.data || []),
   ]);
-  return { exportedAt: new Date().toISOString(), admins, houses, bills, settings };
+  return { exportedAt: new Date().toISOString(), admins, houses, bills, settings: settingsRows };
+}
+
+// ยอมรับไฟล์ backup ทั้งแบบเก่า (camelCase จาก IndexedDB) และแบบใหม่ (snake_case จาก Supabase)
+function normalizeHouseForImport(h) {
+  return {
+    id: h.id,
+    house_no: h.house_no ?? h.houseNo,
+    owner_name: h.owner_name ?? h.ownerName,
+    phone: h.phone ?? null,
+    password: h.password || '1234',
+    last_meter: h.last_meter ?? h.lastMeter ?? 0,
+  };
+}
+
+function normalizeBillForImport(b) {
+  return {
+    id: b.id,
+    house_id: b.house_id ?? b.houseId,
+    month: b.month,
+    prev_meter: b.prev_meter ?? b.prevMeter,
+    curr_meter: b.curr_meter ?? b.currMeter,
+    units: b.units,
+    water_fee: b.water_fee ?? b.waterFee,
+    base_fee: b.base_fee ?? b.baseFee,
+    amount: b.amount,
+    status: b.status || 'unpaid',
+    promptpay_no: b.promptpay_no ?? b.promptpayNo ?? null,
+    meter_image: b.meter_image ?? b.meterImage ?? null,
+    slip_image: b.slip_image ?? b.slipImage ?? null,
+    recorded_at: b.recorded_at ?? b.recordedAt ?? new Date().toISOString(),
+    submitted_at: b.submitted_at ?? b.submittedAt ?? null,
+    paid_at: b.paid_at ?? b.paidAt ?? null,
+  };
+}
+
+function normalizeAdminForImport(a) {
+  return { id: a.id, username: a.username, password: a.password, name: a.name };
+}
+
+function normalizeSettingsForImport(s) {
+  if (s.id !== 'billing') return null; // ข้าม row เมทาดาต้าเก่าๆ เช่น {id:'seeded'}
+  return {
+    id: 'billing',
+    month: s.month,
+    rate_per_unit: s.rate_per_unit ?? s.ratePerUnit,
+    base_fee: s.base_fee ?? s.baseFee,
+    promptpay_no: s.promptpay_no ?? s.promptpayNo,
+  };
 }
 
 export async function importDatabase(payload) {
-  const db = await openDatabase();
-  const tx = db.transaction(['admins', 'houses', 'bills', 'settings'], 'readwrite');
-  ['admins', 'houses', 'bills', 'settings'].forEach((storeName) => tx.objectStore(storeName).clear());
-  payload.admins?.forEach((item) => tx.objectStore('admins').put(item));
-  payload.houses?.forEach((item) => tx.objectStore('houses').put(item));
-  payload.bills?.forEach((item) => tx.objectStore('bills').put(item));
-  payload.settings?.forEach((item) => tx.objectStore('settings').put(item));
-  await transactionDone(tx);
+  // นำเข้าทับของเดิม (upsert ตาม id) — ใช้ตอนกู้คืนจากไฟล์สำรองเท่านั้น
+  if (payload.houses?.length) {
+    const { error } = await supabase.from('houses').upsert(payload.houses.map(normalizeHouseForImport));
+    throwIfError(error, 'นำเข้าข้อมูลบ้านไม่สำเร็จ');
+  }
+  if (payload.admins?.length) {
+    const { error } = await supabase.from('admins').upsert(payload.admins.map(normalizeAdminForImport));
+    throwIfError(error, 'นำเข้าข้อมูลผู้ดูแลไม่สำเร็จ');
+  }
+  if (payload.bills?.length) {
+    const { error } = await supabase.from('bills').upsert(payload.bills.map(normalizeBillForImport));
+    throwIfError(error, 'นำเข้าข้อมูลบิลไม่สำเร็จ');
+  }
+  if (payload.settings?.length) {
+    const rows = payload.settings.map(normalizeSettingsForImport).filter(Boolean);
+    if (rows.length) {
+      const { error } = await supabase.from('settings').upsert(rows);
+      throwIfError(error, 'นำเข้าการตั้งค่าไม่สำเร็จ');
+    }
+  }
 }
 
 export function fileToDataUrl(file) {
