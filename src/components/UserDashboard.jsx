@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fileToDataUrl, getBillsByHouseId, getHouseById, getSettings, savePaymentSlip } from '../utils/db';
 
 export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
@@ -7,7 +7,7 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const latestBill = bills[0];
+  const [selectedBillId, setSelectedBillId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -20,11 +20,20 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
         getSettings(),
       ]);
       if (!mounted) return;
+      const sorted = [...billList].sort(
+        (a, b) => new Date(b.recordedAt || 0) - new Date(a.recordedAt || 0)
+      );
       setHouse(houseData);
       setSettings(billingSettings);
-      setBills(
-        [...billList].sort((a, b) => new Date(b.recordedAt || 0) - new Date(a.recordedAt || 0)),
-      );
+      setBills(sorted);
+      // ตั้งค่าบิลที่เลือกไว้เริ่มต้น: บิลค้างชำระที่เก่าที่สุด (จ่ายไล่จากเก่าไปใหม่)
+      // ถ้าจ่ายครบทุกบิลแล้ว ให้โชว์บิลล่าสุดแทน
+      const unpaid = sorted.filter((b) => b.status !== 'paid');
+      setSelectedBillId((prev) => {
+        const stillValid = prev && sorted.some((b) => b.id === prev);
+        if (stillValid) return prev;
+        return unpaid.length > 0 ? unpaid[unpaid.length - 1].id : sorted[0]?.id ?? null;
+      });
       setLoading(false);
     }
 
@@ -40,11 +49,18 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
     };
   }, [houseId, refreshKey]);
 
+  const unpaidBills = useMemo(() => bills.filter((b) => b.status !== 'paid'), [bills]);
+  const totalOutstanding = useMemo(
+    () => unpaidBills.reduce((sum, b) => sum + b.amount, 0),
+    [unpaidBills]
+  );
+  const selectedBill = bills.find((b) => b.id === selectedBillId) || bills[0];
+
   const handleSlipUpload = async (event) => {
     const file = event.target.files?.[0];
-    if (!file || !latestBill) return;
+    if (!file || !selectedBill) return;
     const dataUrl = await fileToDataUrl(file);
-    await savePaymentSlip(latestBill.id, dataUrl);
+    await savePaymentSlip(selectedBill.id, dataUrl);
     event.target.value = '';
     onDataChange();
   };
@@ -63,41 +79,48 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
         </div>
       </div>
 
-      {!latestBill ? (
-        <div className="panel empty">ยังไม่มีบิลที่ออกโดยผู้ดูแลในรอบนี้</div>
+      {unpaidBills.length > 1 && (
+        <div className="notice error">
+          มีบิลค้างชำระทั้งหมด {unpaidBills.length} รอบ รวม {totalOutstanding.toLocaleString()} บาท
+          — เลือกบิลที่จะชำระได้จากรายการด้านล่าง (แนบสลิปทีละรอบ)
+        </div>
+      )}
+
+      {!selectedBill ? (
+        <div className="panel empty">ยังไม่มีบิลที่ออกโดยผู้ดูแล</div>
       ) : (
         <div className="panel bill-card">
           <div className="panel-title">
-            <h2>รอบบิล {latestBill.month}</h2>
-            <Status status={latestBill.status} />
+            <h2>รอบบิล {selectedBill.month}</h2>
+            <Status status={selectedBill.status} />
           </div>
 
           <div className="bill-grid">
             <span>เลขมิเตอร์ครั้งก่อน</span>
-            <strong>{latestBill.prevMeter}</strong>
+            <strong>{selectedBill.prevMeter}</strong>
             <span>เลขมิเตอร์ครั้งนี้</span>
-            <strong>{latestBill.currMeter}</strong>
+            <strong>{selectedBill.currMeter}</strong>
             <span>จำนวนหน่วย</span>
-            <strong>{latestBill.units} หน่วย</strong>
+            <strong>{selectedBill.units} หน่วย</strong>
             <span>ยอดชำระ</span>
-            <strong>{latestBill.amount.toLocaleString()} บาท</strong>
+            <strong>{selectedBill.amount.toLocaleString()} บาท</strong>
           </div>
 
-          {latestBill.status !== 'paid' && (
+          {selectedBill.status !== 'paid' && (
             <div className="payment-box">
               <h3>ชำระผ่านพร้อมเพย์</h3>
               <img
-                src={`https://promptpay.io/${settings?.promptpayNo || latestBill.promptpayNo}/${latestBill.amount}.png`}
+                src={`https://promptpay.io/${settings?.promptpayNo || selectedBill.promptpayNo}/${selectedBill.amount}.png`}
                 alt="PromptPay QR Code"
               />
               <label className="file-button wide">
-                แนบสลิปการโอนเงิน
+                แนบสลิปการโอนเงิน (สำหรับรอบ {selectedBill.month})
                 <input type="file" accept="image/*" onChange={handleSlipUpload} />
               </label>
-              {latestBill.slipImage && (
-                <a href={latestBill.slipImage} target="_blank" rel="noreferrer">
+              {selectedBill.slipImage && (
+                <a href={selectedBill.slipImage} target="_blank" rel="noreferrer">
                   <img
-                    src={latestBill.slipImage}
+                    src={selectedBill.slipImage}
                     alt="สลิปที่ส่งล่าสุด"
                     style={{ maxWidth: 160, borderRadius: 8, marginTop: 8 }}
                   />
@@ -111,16 +134,23 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
       {bills.length > 1 && (
         <div className="panel">
           <div className="panel-title">
-            <h2>ประวัติบิล</h2>
+            <h2>บิลทั้งหมด</h2>
           </div>
           <div className="history-list">
-            {bills.slice(1).map((bill) => (
-              <div key={bill.id}>
-                <span>{bill.month}</span>
-                <strong>{bill.amount.toLocaleString()} บาท</strong>
-                <Status status={bill.status} />
-              </div>
-            ))}
+            {bills
+              .filter((bill) => bill.id !== selectedBill?.id)
+              .map((bill) => (
+                <div key={bill.id}>
+                  <span>{bill.month}</span>
+                  <strong>{bill.amount.toLocaleString()} บาท</strong>
+                  <Status status={bill.status} />
+                  {bill.status !== 'paid' && (
+                    <button className="secondary" onClick={() => setSelectedBillId(bill.id)}>
+                      เลือกชำระบิลนี้
+                    </button>
+                  )}
+                </div>
+              ))}
           </div>
         </div>
       )}
