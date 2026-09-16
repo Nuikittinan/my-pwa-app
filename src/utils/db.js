@@ -284,7 +284,22 @@ export async function updateBillStatus(billId, status) {
   return toBill(data);
 }
 
-export async function getDashboardData() {
+export async function getAvailableMonths() {
+  const [billsResult, settings] = await Promise.all([
+    supabase.from('bills').select('month').order('recorded_at', { ascending: true }),
+    getSettings(),
+  ]);
+  throwIfError(billsResult.error, 'โหลดรายชื่อรอบบิลไม่สำเร็จ');
+
+  const months = [];
+  for (const row of billsResult.data) {
+    if (!months.includes(row.month)) months.push(row.month);
+  }
+  if (!months.includes(settings.month)) months.push(settings.month); // เผื่อรอบปัจจุบันยังไม่มีบิลเลยสักใบ
+  return months; // เรียงจากเก่าไปใหม่ ตามลำดับเวลาที่บันทึกจริง
+}
+
+export async function getDashboardData(targetMonth) {
   const [housesResult, billsResult, settings] = await Promise.all([
     supabase.from('houses').select('*').order('house_no'),
     supabase.from('bills').select('*'),
@@ -293,9 +308,12 @@ export async function getDashboardData() {
   throwIfError(housesResult.error, 'โหลดรายชื่อบ้านไม่สำเร็จ');
   throwIfError(billsResult.error, 'โหลดบิลไม่สำเร็จ');
 
+  const month = targetMonth || settings.month;
+  const isCurrentMonth = month === settings.month;
+
   const houses = housesResult.data.map(toHouse);
   const houseMap = new Map(houses.map((h) => [h.id, h]));
-  const monthBillRows = billsResult.data.filter((b) => b.month === settings.month);
+  const monthBillRows = billsResult.data.filter((b) => b.month === month);
   const monthBills = monthBillRows.map((r) => toBill(r, houseMap.get(r.house_id)));
   const paidBills = monthBills.filter((b) => b.status === 'paid');
   const unpaidBills = monthBills.filter((b) => b.status !== 'paid');
@@ -308,10 +326,13 @@ export async function getDashboardData() {
     houses,
     bills: billsWithHouses,
     summary: {
-      month: settings.month,
+      month,
+      isCurrentMonth,
+      // "ยังไม่ได้จด" มีความหมายเฉพาะรอบบิลปัจจุบันเท่านั้น เดือนเก่าที่ปิดรอบไปแล้ว
+      // บ้านที่ไม่มีบิลไม่ได้แปลว่า "ค้างจด" อีกต่อไป
       totalHouses: houses.length,
       recorded: monthBills.length,
-      pending: Math.max(0, houses.length - monthBills.length),
+      pending: isCurrentMonth ? Math.max(0, houses.length - monthBills.length) : 0,
       totalBilled: monthBills.reduce((sum, b) => sum + b.amount, 0),
       totalPaid: paidBills.reduce((sum, b) => sum + b.amount, 0),
       totalUnpaid: unpaidBills.reduce((sum, b) => sum + b.amount, 0),

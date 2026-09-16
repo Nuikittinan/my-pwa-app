@@ -1,13 +1,40 @@
 import { useEffect, useState } from 'react';
-import { exportDatabase, getDashboardData, importDatabase, updateBillStatus } from '../utils/db';
+import {
+  exportDatabase,
+  getAvailableMonths,
+  getDashboardData,
+  importDatabase,
+  updateBillStatus,
+} from '../utils/db';
 
 export default function AdminDashboard({ refreshKey, onDataChange }) {
   const [data, setData] = useState(null);
+  const [months, setMonths] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState(null);
   const [error, setError] = useState('');
 
+  // โหลดรายชื่อรอบบิลทั้งหมดที่มีอยู่ (ครั้งแรก + ทุกครั้งที่มีการเปลี่ยนแปลงข้อมูล)
   useEffect(() => {
     let mounted = true;
-    getDashboardData()
+    getAvailableMonths()
+      .then((list) => {
+        if (!mounted) return;
+        setMonths(list);
+        // ถ้ายังไม่เคยเลือกเดือน หรือเดือนที่เลือกไว้หายไปจากลิสต์ -> กลับไปใช้รอบล่าสุด (ตัวท้ายสุด)
+        setSelectedMonth((prev) => (prev && list.includes(prev) ? prev : list[list.length - 1]));
+      })
+      .catch((err) => {
+        if (mounted) setError(err.message || 'โหลดรายชื่อรอบบิลไม่สำเร็จ');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (!selectedMonth) return;
+    let mounted = true;
+    getDashboardData(selectedMonth)
       .then((result) => {
         if (mounted) setData(result);
       })
@@ -18,7 +45,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
     return () => {
       mounted = false;
     };
-  }, [refreshKey]);
+  }, [selectedMonth, refreshKey]);
 
   const handleApprove = async (billId) => {
     await updateBillStatus(billId, 'paid');
@@ -60,9 +87,30 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
       <div className="section-heading">
         <div>
           <h1>สรุปค่าน้ำประปา</h1>
-          <p>รอบบิล {summary.month}</p>
+          <p>
+            รอบบิล {summary.month}
+            {summary.isCurrentMonth ? ' (รอบปัจจุบัน)' : ' (รอบที่ผ่านมา)'}
+          </p>
         </div>
         <div className="actions">
+          {months.length > 1 && (
+            <select
+              value={selectedMonth || ''}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: '1px solid #cbd5e1',
+                background: '#fff',
+              }}
+            >
+              {[...months].reverse().map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="secondary" onClick={handleExport}>
             สำรองข้อมูล
           </button>
@@ -76,7 +124,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
       <div className="metric-grid">
         <Metric label="บ้านทั้งหมด" value={summary.totalHouses} />
         <Metric label="จดมิเตอร์แล้ว" value={summary.recorded} />
-        <Metric label="ยังไม่ได้จด" value={summary.pending} />
+        {summary.isCurrentMonth && <Metric label="ยังไม่ได้จด" value={summary.pending} />}
         <Metric label="รอตรวจสลิป" value={summary.waitingReview} />
         <Metric label="ยอดเรียกเก็บ" value={`${summary.totalBilled.toLocaleString()} บาท`} />
         <Metric label="ค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} บาท`} tone="warning" />
@@ -145,7 +193,9 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
               {bills.length === 0 && (
                 <tr>
                   <td colSpan="7" className="empty">
-                    ยังไม่มีบิลรอบนี้ ให้ไปที่เมนูจดมิเตอร์เพื่อสร้างบิล
+                    {summary.isCurrentMonth
+                      ? 'ยังไม่มีบิลรอบนี้ ให้ไปที่เมนูจดมิเตอร์เพื่อสร้างบิล'
+                      : 'ไม่พบบิลของรอบนี้'}
                   </td>
                 </tr>
               )}
