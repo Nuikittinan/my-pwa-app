@@ -205,7 +205,7 @@ export async function getBillWithHouse(billId) {
   return toBill(billRow, toHouse(houseRow));
 }
 
-export async function saveMeterReading({ houseId, currMeter, meterImage }) {
+export async function saveMeterReading({ houseId, currMeter, meterImage, recordedAt }) {
   const house = await getHouseById(houseId);
   if (!house) throw new Error('ไม่พบบ้านที่เลือก');
 
@@ -240,7 +240,7 @@ export async function saveMeterReading({ houseId, currMeter, meterImage }) {
     promptpay_no: settings.promptpayNo,
     meter_image: meterImage || existingRow?.meter_image || null,
     slip_image: existingRow?.slip_image || null,
-    recorded_at: new Date().toISOString(),
+    recorded_at: recordedAt ? new Date(recordedAt).toISOString() : new Date().toISOString(),
     paid_at: existingRow?.paid_at || null,
   };
 

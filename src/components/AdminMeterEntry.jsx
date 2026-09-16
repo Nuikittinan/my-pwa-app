@@ -2,12 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { fileToDataUrl, getAll, getSettings, saveMeterReading } from '../utils/db';
 import { calculateWaterBill } from '../utils/calculate';
 
+function toLocalDatetimeValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
 export default function AdminMeterEntry({ onSaved }) {
   const [houses, setHouses] = useState([]);
   const [settings, setSettings] = useState(null);
   const [selectedHouseId, setSelectedHouseId] = useState('');
   const [currMeter, setCurrMeter] = useState('');
   const [meterImage, setMeterImage] = useState(null);
+  const [recordedAt, setRecordedAt] = useState(() => toLocalDatetimeValue(new Date()));
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -50,10 +58,12 @@ export default function AdminMeterEntry({ onSaved }) {
         houseId: selectedHouseId,
         currMeter,
         meterImage,
+        recordedAt,
       });
       setMessage(`บันทึกบิลบ้าน ${bill.house.houseNo} ยอด ${bill.amount.toLocaleString()} บาทแล้ว`);
       setCurrMeter('');
       setMeterImage(null);
+      setRecordedAt(toLocalDatetimeValue(new Date()));
       const houseList = await getAll('houses');
       setHouses([...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th')));
       onSaved();
@@ -102,6 +112,16 @@ export default function AdminMeterEntry({ onSaved }) {
             min={selectedHouse?.lastMeter || 0}
             value={currMeter}
             onChange={(event) => setCurrMeter(event.target.value)}
+            required
+          />
+        </label>
+
+        <label>
+          วันเวลาที่จดมิเตอร์
+          <input
+            type="datetime-local"
+            value={recordedAt}
+            onChange={(event) => setRecordedAt(event.target.value)}
             required
           />
         </label>

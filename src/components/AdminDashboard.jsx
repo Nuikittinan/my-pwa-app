@@ -141,6 +141,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
               <tr>
                 <th>บ้าน</th>
                 <th>มิเตอร์</th>
+                <th>วันที่จด</th>
                 <th>หน่วย</th>
                 <th>ยอด</th>
                 <th>สถานะ</th>
@@ -157,6 +158,14 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
                   </td>
                   <td>
                     {bill.prevMeter} → {bill.currMeter}
+                  </td>
+                  <td>
+                    {bill.recordedAt
+                      ? new Date(bill.recordedAt).toLocaleString('th-TH', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })
+                      : '-'}
                   </td>
                   <td>{bill.units}</td>
                   <td>{bill.amount.toLocaleString()} บาท</td>
@@ -192,7 +201,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
               ))}
               {bills.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="empty">
+                  <td colSpan="8" className="empty">
                     {summary.isCurrentMonth
                       ? 'ยังไม่มีบิลรอบนี้ ให้ไปที่เมนูจดมิเตอร์เพื่อสร้างบิล'
                       : 'ไม่พบบิลของรอบนี้'}
