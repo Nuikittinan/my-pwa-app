@@ -8,6 +8,7 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedBillId, setSelectedBillId] = useState(null);
+  const [viewingSlip, setViewingSlip] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -118,13 +119,17 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
                 <input type="file" accept="image/*" onChange={handleSlipUpload} />
               </label>
               {selectedBill.slipImage && (
-                <a href={selectedBill.slipImage} target="_blank" rel="noreferrer">
+                <button
+                  type="button"
+                  onClick={() => setViewingSlip(selectedBill.slipImage)}
+                  style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                >
                   <img
                     src={selectedBill.slipImage}
                     alt="สลิปที่ส่งล่าสุด"
                     style={{ maxWidth: 160, borderRadius: 8, marginTop: 8 }}
                   />
-                </a>
+                </button>
               )}
             </div>
           )}
@@ -151,6 +156,37 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
                   )}
                 </div>
               ))}
+          </div>
+        </div>
+      )}
+
+      {viewingSlip && (
+        <div
+          onClick={() => setViewingSlip(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ maxWidth: '92vw', maxHeight: '92vh', textAlign: 'center' }}>
+            <img
+              src={viewingSlip}
+              alt="สลิปโอนเงิน (ขนาดเต็ม)"
+              style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 10 }}
+            />
+            <button
+              type="button"
+              onClick={() => setViewingSlip(null)}
+              style={{ marginTop: 14, padding: '8px 20px' }}
+            >
+              ปิด
+            </button>
           </div>
         </div>
       )}

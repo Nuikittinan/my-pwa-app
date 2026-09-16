@@ -13,6 +13,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [error, setError] = useState('');
+  const [viewingSlip, setViewingSlip] = useState(null);
 
   // โหลดรายชื่อรอบบิลทั้งหมดที่มีอยู่ (ครั้งแรก + ทุกครั้งที่มีการเปลี่ยนแปลงข้อมูล)
   useEffect(() => {
@@ -175,13 +176,17 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
                   </td>
                   <td>
                     {bill.slipImage ? (
-                      <a href={bill.slipImage} target="_blank" rel="noreferrer">
+                      <button
+                        type="button"
+                        onClick={() => setViewingSlip(bill.slipImage)}
+                        style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                      >
                         <img
                           src={bill.slipImage}
                           alt="สลิปโอนเงิน"
                           style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }}
                         />
-                      </a>
+                      </button>
                     ) : (
                       <span className="muted">ไม่มี</span>
                     )}
@@ -215,6 +220,37 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
       </div>
 
       <AdminUsageChart refreshKey={refreshKey} />
+
+      {viewingSlip && (
+        <div
+          onClick={() => setViewingSlip(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ maxWidth: '92vw', maxHeight: '92vh', textAlign: 'center' }}>
+            <img
+              src={viewingSlip}
+              alt="สลิปโอนเงิน (ขนาดเต็ม)"
+              style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 10 }}
+            />
+            <button
+              type="button"
+              onClick={() => setViewingSlip(null)}
+              style={{ marginTop: 14, padding: '8px 20px' }}
+            >
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
