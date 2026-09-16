@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import AdminUsageChart from './AdminUsageChart';
 import {
   exportDatabase,
   getAvailableMonths,
@@ -129,6 +130,8 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
         <Metric label="ยอดเรียกเก็บ" value={`${summary.totalBilled.toLocaleString()} บาท`} />
         <Metric label="ค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} บาท`} tone="warning" />
       </div>
+
+      <AdminUsageChart refreshKey={refreshKey} />
 
       <div className="panel">
         <div className="panel-title">

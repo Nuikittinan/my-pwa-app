@@ -303,6 +303,35 @@ export async function updateBillStatus(billId, status) {
   return toBill(data);
 }
 
+export async function getMonthlyUsageSummary() {
+  const { data, error } = await supabase
+    .from('bills')
+    .select('month, units, amount, recorded_at')
+    .order('recorded_at', { ascending: true });
+  throwIfError(error, 'โหลดข้อมูลการใช้น้ำรายเดือนไม่สำเร็จ');
+
+  const map = new Map(); // month -> { totalUnits, totalAmount, firstRecordedAt }
+  for (const row of data) {
+    const entry = map.get(row.month) || {
+      totalUnits: 0,
+      totalAmount: 0,
+      firstRecordedAt: row.recorded_at,
+    };
+    entry.totalUnits += Number(row.units) || 0;
+    entry.totalAmount += Number(row.amount) || 0;
+    map.set(row.month, entry);
+  }
+
+  return [...map.entries()]
+    .map(([month, v]) => ({
+      month,
+      totalUnits: v.totalUnits,
+      totalAmount: v.totalAmount,
+      firstRecordedAt: v.firstRecordedAt,
+    }))
+    .sort((a, b) => new Date(a.firstRecordedAt) - new Date(b.firstRecordedAt));
+}
+
 export async function getAvailableMonths() {
   const [billsResult, settings] = await Promise.all([
     supabase.from('bills').select('month').order('recorded_at', { ascending: true }),
