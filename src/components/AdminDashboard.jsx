@@ -131,8 +131,6 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
         <Metric label="ค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} บาท`} tone="warning" />
       </div>
 
-      <AdminUsageChart refreshKey={refreshKey} />
-
       <div className="panel">
         <div className="panel-title">
           <h2>รายการบิล</h2>
@@ -215,6 +213,8 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
           </table>
         </div>
       </div>
+
+      <AdminUsageChart refreshKey={refreshKey} />
     </section>
   );
 }
