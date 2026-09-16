@@ -205,6 +205,23 @@ export async function getBillWithHouse(billId) {
   return toBill(billRow, toHouse(houseRow));
 }
 
+export async function getBilledHouseIds(month) {
+  const { data, error } = await supabase.from('bills').select('house_id').eq('month', month);
+  throwIfError(error, 'ตรวจสอบรายชื่อบ้านที่จดแล้วไม่สำเร็จ');
+  return new Set(data.map((r) => r.house_id));
+}
+
+export async function getBillForHouseAndMonth(houseId, month) {
+  const { data, error } = await supabase
+    .from('bills')
+    .select('*')
+    .eq('house_id', houseId)
+    .eq('month', month)
+    .maybeSingle();
+  throwIfError(error, 'ตรวจสอบบิลเดิมไม่สำเร็จ');
+  return toBill(data);
+}
+
 export async function saveMeterReading({ houseId, currMeter, meterImage, recordedAt }) {
   const house = await getHouseById(houseId);
   if (!house) throw new Error('ไม่พบบ้านที่เลือก');
@@ -218,14 +235,11 @@ export async function saveMeterReading({ houseId, currMeter, meterImage, recorde
   const waterFee = units * settings.ratePerUnit;
   const amount = waterFee + settings.baseFee;
 
-  // เช็คว่ามีบิลของบ้านนี้ในรอบเดือนนี้อยู่แล้วหรือยัง (จดซ้ำ = แก้ไขของเดิม)
-  const { data: existingRow, error: findError } = await supabase
-    .from('bills')
-    .select('*')
-    .eq('house_id', houseId)
-    .eq('month', settings.month)
-    .maybeSingle();
-  throwIfError(findError, 'ตรวจสอบบิลเดิมไม่สำเร็จ');
+  // บ้านนี้จดมิเตอร์ของรอบบิลนี้ไปแล้ว -> ห้ามบันทึกซ้ำ (กันจดซ้ำ/ทับข้อมูลเดิมโดยไม่ตั้งใจ)
+  const existingRow = await getBillForHouseAndMonth(houseId, settings.month);
+  if (existingRow) {
+    throw new Error(`บ้าน ${house.houseNo} จดมิเตอร์ของรอบ "${settings.month}" ไปแล้ว ไม่สามารถบันทึกซ้ำได้`);
+  }
 
   const payload = {
     house_id: houseId,
@@ -236,17 +250,22 @@ export async function saveMeterReading({ houseId, currMeter, meterImage, recorde
     water_fee: waterFee,
     base_fee: settings.baseFee,
     amount,
-    status: existingRow?.status === 'paid' ? 'paid' : 'unpaid',
+    status: 'unpaid',
     promptpay_no: settings.promptpayNo,
-    meter_image: meterImage || existingRow?.meter_image || null,
-    slip_image: existingRow?.slip_image || null,
+    meter_image: meterImage || null,
+    slip_image: null,
     recorded_at: recordedAt ? new Date(recordedAt).toISOString() : new Date().toISOString(),
-    paid_at: existingRow?.paid_at || null,
+    paid_at: null,
   };
 
-  const { data: savedBill, error: billError } = existingRow
-    ? await supabase.from('bills').update(payload).eq('id', existingRow.id).select().single()
-    : await supabase.from('bills').insert(payload).select().single();
+  const { data: savedBill, error: billError } = await supabase
+    .from('bills')
+    .insert(payload)
+    .select()
+    .single();
+  if (billError?.code === '23505') {
+    throw new Error(`บ้าน ${house.houseNo} จดมิเตอร์ของรอบ "${settings.month}" ไปแล้ว ไม่สามารถบันทึกซ้ำได้`);
+  }
   throwIfError(billError, 'บันทึกบิลไม่สำเร็จ');
 
   const { error: houseError } = await supabase

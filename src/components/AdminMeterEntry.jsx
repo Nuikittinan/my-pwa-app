@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fileToDataUrl, getAll, getSettings, saveMeterReading } from '../utils/db';
+import { fileToDataUrl, getAll, getBilledHouseIds, getSettings, saveMeterReading } from '../utils/db';
 import { calculateWaterBill } from '../utils/calculate';
 
 function toLocalDatetimeValue(date) {
@@ -12,6 +12,7 @@ function toLocalDatetimeValue(date) {
 export default function AdminMeterEntry({ onSaved }) {
   const [houses, setHouses] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [billedHouseIds, setBilledHouseIds] = useState(new Set());
   const [selectedHouseId, setSelectedHouseId] = useState('');
   const [currMeter, setCurrMeter] = useState('');
   const [meterImage, setMeterImage] = useState(null);
@@ -20,14 +21,26 @@ export default function AdminMeterEntry({ onSaved }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const loadHousesAndStatus = async (month) => {
+    const [houseList, billed] = await Promise.all([getAll('houses'), getBilledHouseIds(month)]);
+    const sorted = [...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th'));
+    setHouses(sorted);
+    setBilledHouseIds(billed);
+    return { sorted, billed };
+  };
+
   useEffect(() => {
-    Promise.all([getAll('houses'), getSettings()]).then(([houseList, billingSettings]) => {
-      const sorted = [...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th'));
-      setHouses(sorted);
+    getSettings().then(async (billingSettings) => {
       setSettings(billingSettings);
-      setSelectedHouseId(sorted[0]?.id || '');
+      const { sorted, billed } = await loadHousesAndStatus(billingSettings.month);
+      // เลือกบ้านแรกที่ยังไม่ได้จดไว้ให้อัตโนมัติ (ถ้ามี) เพื่อลดการคลิกเลือกเอง
+      const firstUnbilled = sorted.find((h) => !billed.has(h.id));
+      setSelectedHouseId((firstUnbilled || sorted[0])?.id || '');
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const alreadyBilled = selectedHouseId && billedHouseIds.has(selectedHouseId);
 
   const selectedHouse = houses.find((house) => house.id === selectedHouseId);
   const estimate = useMemo(() => {
@@ -51,8 +64,13 @@ export default function AdminMeterEntry({ onSaved }) {
     event.preventDefault();
     setError('');
     setMessage('');
-    setSaving(true);
 
+    if (alreadyBilled) {
+      setError(`บ้าน ${selectedHouse?.houseNo} จดมิเตอร์ของรอบนี้ไปแล้ว ไม่สามารถบันทึกซ้ำได้`);
+      return;
+    }
+
+    setSaving(true);
     try {
       const bill = await saveMeterReading({
         houseId: selectedHouseId,
@@ -64,8 +82,9 @@ export default function AdminMeterEntry({ onSaved }) {
       setCurrMeter('');
       setMeterImage(null);
       setRecordedAt(toLocalDatetimeValue(new Date()));
-      const houseList = await getAll('houses');
-      setHouses([...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th')));
+      const { sorted, billed } = await loadHousesAndStatus(settings.month);
+      const nextUnbilled = sorted.find((h) => h.id !== selectedHouseId && !billed.has(h.id));
+      if (nextUnbilled) setSelectedHouseId(nextUnbilled.id);
       onSaved();
     } catch (err) {
       setError(err.message || 'บันทึกข้อมูลไม่สำเร็จ');
@@ -81,7 +100,7 @@ export default function AdminMeterEntry({ onSaved }) {
       <div className="section-heading">
         <div>
           <h1>จดมิเตอร์และสร้างบิล</h1>
-          <p>ระบบจะบันทึกลง IndexedDB และอัปเดตเลขมิเตอร์ล่าสุดของบ้านทันที</p>
+          <p>รอบบิล {settings.month} — บ้านที่จดแล้วจะขึ้น "✅ จดแล้ว" กำกับไว้ กดบันทึกซ้ำไม่ได้</p>
         </div>
       </div>
 
@@ -92,6 +111,7 @@ export default function AdminMeterEntry({ onSaved }) {
             {houses.map((house) => (
               <option key={house.id} value={house.id}>
                 {house.houseNo} - {house.ownerName}
+                {billedHouseIds.has(house.id) ? ' (✅ จดแล้ว)' : ''}
               </option>
             ))}
           </select>
@@ -105,6 +125,13 @@ export default function AdminMeterEntry({ onSaved }) {
           </div>
         )}
 
+        {alreadyBilled && (
+          <div className="notice error">
+            บ้าน {selectedHouse?.houseNo} จดมิเตอร์ของรอบ "{settings.month}" ไปแล้ว
+            ไม่สามารถบันทึกซ้ำได้ — ถ้าจดผิดต้องแก้ไขผ่าน Supabase โดยตรง
+          </div>
+        )}
+
         <label>
           เลขมิเตอร์ปัจจุบัน
           <input
@@ -112,6 +139,7 @@ export default function AdminMeterEntry({ onSaved }) {
             min={selectedHouse?.lastMeter || 0}
             value={currMeter}
             onChange={(event) => setCurrMeter(event.target.value)}
+            disabled={alreadyBilled}
             required
           />
         </label>
@@ -122,13 +150,20 @@ export default function AdminMeterEntry({ onSaved }) {
             type="datetime-local"
             value={recordedAt}
             onChange={(event) => setRecordedAt(event.target.value)}
+            disabled={alreadyBilled}
             required
           />
         </label>
 
         <label>
           รูปมิเตอร์
-          <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} />
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageUpload}
+            disabled={alreadyBilled}
+          />
         </label>
 
         {meterImage && <img className="preview-image" src={meterImage} alt="รูปมิเตอร์ที่เลือก" />}
@@ -149,8 +184,8 @@ export default function AdminMeterEntry({ onSaved }) {
         {error && <div className="notice error">{error}</div>}
         {message && <div className="notice success">{message}</div>}
 
-        <button type="submit" disabled={saving || !selectedHouse}>
-          {saving ? 'กำลังบันทึก...' : 'บันทึกและสร้างบิล'}
+        <button type="submit" disabled={saving || !selectedHouse || alreadyBilled}>
+          {alreadyBilled ? 'จดแล้ว บันทึกซ้ำไม่ได้' : saving ? 'กำลังบันทึก...' : 'บันทึกและสร้างบิล'}
         </button>
       </form>
     </section>
