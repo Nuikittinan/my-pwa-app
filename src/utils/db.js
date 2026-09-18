@@ -102,6 +102,72 @@ export async function getVillageById(villageId) {
   return toVillage(data);
 }
 
+const THAI_MONTHS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+];
+
+function currentMonthLabel() {
+  const now = new Date();
+  return `${THAI_MONTHS[now.getMonth()]} ${now.getFullYear() + 543}`;
+}
+
+/**
+ * สมัครหมู่บ้านใหม่: สร้าง village + บัญชีแอดมินคนแรก + ค่าตั้งต้นของระบบ (settings)
+ * ทำทีละขั้น พร้อม rollback ถ้าขั้นถัดไปล้มเหลว กันหมู่บ้าน "ลอย" ไม่มีแอดมินหรือ settings
+ */
+export async function createVillage({ villageName, adminName, adminUsername, adminPassword }) {
+  const trimmedVillageName = villageName?.trim();
+  const trimmedAdminName = adminName?.trim();
+  const trimmedUsername = adminUsername?.trim();
+  const trimmedPassword = adminPassword?.trim();
+
+  if (!trimmedVillageName) throw new Error('กรุณากรอกชื่อหมู่บ้าน');
+  if (!trimmedAdminName) throw new Error('กรุณากรอกชื่อผู้ดูแล');
+  if (!trimmedUsername) throw new Error('กรุณากรอกชื่อผู้ใช้สำหรับเข้าสู่ระบบ');
+  if (!trimmedPassword || trimmedPassword.length < 4) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
+  }
+
+  const { data: villageRow, error: villageError } = await supabase
+    .from('villages')
+    .insert({ name: trimmedVillageName })
+    .select()
+    .single();
+  if (villageError?.code === '23505') throw new Error('มีชื่อหมู่บ้านนี้อยู่แล้ว ลองตั้งชื่ออื่น');
+  throwIfError(villageError, 'สร้างหมู่บ้านไม่สำเร็จ');
+
+  const villageId = villageRow.id;
+
+  const { error: adminError } = await supabase.from('admins').insert({
+    village_id: villageId,
+    username: trimmedUsername,
+    password: trimmedPassword,
+    name: trimmedAdminName,
+  });
+  if (adminError) {
+    await supabase.from('villages').delete().eq('id', villageId); // rollback
+    if (adminError.code === '23505') throw new Error('มีชื่อผู้ใช้นี้อยู่แล้ว ลองตั้งชื่ออื่น');
+    throw new Error(adminError.message || 'สร้างบัญชีผู้ดูแลไม่สำเร็จ');
+  }
+
+  const { error: settingsError } = await supabase.from('settings').insert({
+    village_id: villageId,
+    month: currentMonthLabel(),
+    rate_per_unit: 10,
+    base_fee: 20,
+    promptpay_no: '',
+  });
+  if (settingsError) {
+    // rollback ทั้งหมด กันหมู่บ้านที่สร้างไม่สมบูรณ์ค้างอยู่
+    await supabase.from('admins').delete().eq('village_id', villageId);
+    await supabase.from('villages').delete().eq('id', villageId);
+    throw new Error(settingsError.message || 'ตั้งค่าเริ่มต้นของหมู่บ้านไม่สำเร็จ');
+  }
+
+  return toVillage(villageRow);
+}
+
 // ---------- Settings ----------
 
 export async function getSettings(villageId) {

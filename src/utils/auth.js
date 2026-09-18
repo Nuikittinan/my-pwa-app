@@ -1,4 +1,11 @@
-import { getAdminByUsername, getHouseByHouseNo, getVillageById, getVillages, openDatabase } from './db';
+import {
+  createVillage,
+  getAdminByUsername,
+  getHouseByHouseNo,
+  getVillageById,
+  getVillages,
+  openDatabase,
+} from './db';
 
 const SESSION_KEY = 'wm_session_v3';
 
@@ -13,6 +20,12 @@ function saveSession(session) {
 
 export async function listVillages() {
   return getVillages();
+}
+
+/** สมัครหมู่บ้านใหม่ แล้ว login เป็นแอดมินคนแรกให้อัตโนมัติ */
+export async function signUpVillage({ villageName, adminName, adminUsername, adminPassword }) {
+  const village = await createVillage({ villageName, adminName, adminUsername, adminPassword });
+  return loginAdmin(village.id, adminUsername, adminPassword);
 }
 
 export async function loginAdmin(villageId, username, password) {
