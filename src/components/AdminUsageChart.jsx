@@ -10,13 +10,13 @@ import {
 } from 'recharts';
 import { getMonthlyUsageSummary } from '../utils/db';
 
-export default function AdminUsageChart({ refreshKey }) {
+export default function AdminUsageChart({ villageId, refreshKey }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let mounted = true;
-    getMonthlyUsageSummary()
+    getMonthlyUsageSummary(villageId)
       .then((result) => {
         if (mounted) setData(result);
       })
@@ -26,7 +26,7 @@ export default function AdminUsageChart({ refreshKey }) {
     return () => {
       mounted = false;
     };
-  }, [refreshKey]);
+  }, [villageId, refreshKey]);
 
   return (
     <div className="panel">

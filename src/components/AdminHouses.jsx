@@ -3,7 +3,7 @@ import { addHouse, deleteHouse, getAll, updateHouse } from '../utils/db';
 
 const emptyForm = { houseNo: '', ownerName: '', phone: '', password: '', lastMeter: 0 };
 
-export default function AdminHouses({ onDataChange }) {
+export default function AdminHouses({ villageId, onDataChange }) {
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(emptyForm);
@@ -13,7 +13,7 @@ export default function AdminHouses({ onDataChange }) {
 
   const loadHouses = () => {
     setLoading(true);
-    getAll('houses')
+    getAll(villageId, 'houses')
       .then((list) => setHouses([...list].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th'))))
       .catch((err) => setError(err.message || 'โหลดรายชื่อบ้านไม่สำเร็จ'))
       .finally(() => setLoading(false));
@@ -21,7 +21,8 @@ export default function AdminHouses({ onDataChange }) {
 
   useEffect(() => {
     loadHouses();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [villageId]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -38,9 +39,9 @@ export default function AdminHouses({ onDataChange }) {
     setSaving(true);
     try {
       if (editingId) {
-        await updateHouse(editingId, form);
+        await updateHouse(villageId, editingId, form);
       } else {
-        await addHouse(form);
+        await addHouse(villageId, form);
       }
       resetForm();
       loadHouses();
@@ -70,7 +71,7 @@ export default function AdminHouses({ onDataChange }) {
     );
     if (!ok) return;
     try {
-      await deleteHouse(house.id);
+      await deleteHouse(villageId, house.id);
       if (editingId === house.id) resetForm();
       loadHouses();
       onDataChange?.();

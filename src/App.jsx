@@ -56,9 +56,17 @@ function App() {
   if (session.role === 'user') {
     return (
       <div className="app-shell">
-        <TopBar title={`ลูกบ้าน: ${session.ownerName} (${session.houseNo})`} onLogout={handleLogout} />
+        <TopBar
+          title={`${session.villageName} — ลูกบ้าน: ${session.ownerName} (${session.houseNo})`}
+          onLogout={handleLogout}
+        />
         <main className="app-main">
-          <UserDashboard houseId={session.id} refreshKey={refreshKey} onDataChange={refreshData} />
+          <UserDashboard
+            villageId={session.villageId}
+            houseId={session.id}
+            refreshKey={refreshKey}
+            onDataChange={refreshData}
+          />
         </main>
       </div>
     );
@@ -66,7 +74,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <TopBar title={`ผู้ดูแล: ${session.name}`} onLogout={handleLogout} />
+      <TopBar title={`${session.villageName} — ผู้ดูแล: ${session.name}`} onLogout={handleLogout} />
 
       <nav className="app-tabs" aria-label="เมนูหลัก">
         <button
@@ -88,11 +96,17 @@ function App() {
 
       <main className="app-main">
         {activeTab === 'dashboard' && (
-          <AdminDashboard refreshKey={refreshKey} onDataChange={refreshData} />
+          <AdminDashboard villageId={session.villageId} refreshKey={refreshKey} onDataChange={refreshData} />
         )}
-        {activeTab === 'meter' && <AdminMeterEntry onSaved={refreshData} />}
-        {activeTab === 'houses' && <AdminHouses onDataChange={refreshData} />}
-        {activeTab === 'settings' && <AdminSettings onDataChange={refreshData} />}
+        {activeTab === 'meter' && (
+          <AdminMeterEntry villageId={session.villageId} onSaved={refreshData} />
+        )}
+        {activeTab === 'houses' && (
+          <AdminHouses villageId={session.villageId} onDataChange={refreshData} />
+        )}
+        {activeTab === 'settings' && (
+          <AdminSettings villageId={session.villageId} onDataChange={refreshData} />
+        )}
       </main>
     </div>
   );

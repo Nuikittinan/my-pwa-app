@@ -8,7 +8,7 @@ import {
   updateBillStatus,
 } from '../utils/db';
 
-export default function AdminDashboard({ refreshKey, onDataChange }) {
+export default function AdminDashboard({ villageId, refreshKey, onDataChange }) {
   const [data, setData] = useState(null);
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -18,7 +18,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
   // โหลดรายชื่อรอบบิลทั้งหมดที่มีอยู่ (ครั้งแรก + ทุกครั้งที่มีการเปลี่ยนแปลงข้อมูล)
   useEffect(() => {
     let mounted = true;
-    getAvailableMonths()
+    getAvailableMonths(villageId)
       .then((list) => {
         if (!mounted) return;
         setMonths(list);
@@ -31,12 +31,12 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
     return () => {
       mounted = false;
     };
-  }, [refreshKey]);
+  }, [villageId, refreshKey]);
 
   useEffect(() => {
     if (!selectedMonth) return;
     let mounted = true;
-    getDashboardData(selectedMonth)
+    getDashboardData(villageId, selectedMonth)
       .then((result) => {
         if (mounted) setData(result);
       })
@@ -47,20 +47,20 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
     return () => {
       mounted = false;
     };
-  }, [selectedMonth, refreshKey]);
+  }, [villageId, selectedMonth, refreshKey]);
 
   const handleApprove = async (billId) => {
-    await updateBillStatus(billId, 'paid');
+    await updateBillStatus(villageId, billId, 'paid');
     onDataChange();
   };
 
   const handleReject = async (billId) => {
-    await updateBillStatus(billId, 'unpaid');
+    await updateBillStatus(villageId, billId, 'unpaid');
     onDataChange();
   };
 
   const handleExport = async () => {
-    const payload = await exportDatabase();
+    const payload = await exportDatabase(villageId);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -74,7 +74,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
     const file = event.target.files?.[0];
     if (!file) return;
     const payload = JSON.parse(await file.text());
-    await importDatabase(payload);
+    await importDatabase(villageId, payload);
     event.target.value = '';
     onDataChange();
   };
@@ -219,7 +219,7 @@ export default function AdminDashboard({ refreshKey, onDataChange }) {
         </div>
       </div>
 
-      <AdminUsageChart refreshKey={refreshKey} />
+      <AdminUsageChart villageId={villageId} refreshKey={refreshKey} />
 
       {viewingSlip && (
         <div

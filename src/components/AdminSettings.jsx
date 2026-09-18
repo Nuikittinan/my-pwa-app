@@ -1,34 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getSettings, updateSettings } from '../utils/db';
 
-const THAI_MONTHS = [
-  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-];
-
-function currentBEYear() {
-  return new Date().getFullYear() + 543;
-}
-
-// แยกข้อความ "กันยายน 2569" ออกเป็น index เดือน (0-11) กับปี พ.ศ.
-// ถ้ารูปแบบไม่ตรง (เช่น พิมพ์เองมาก่อนหน้านี้) จะ fallback เป็นเดือน/ปีปัจจุบัน
-function parseMonthLabel(label) {
-  if (label) {
-    const parts = label.trim().split(/\s+/);
-    const year = parseInt(parts[parts.length - 1], 10);
-    const monthName = parts.slice(0, -1).join(' ');
-    const monthIndex = THAI_MONTHS.indexOf(monthName);
-    if (monthIndex !== -1 && !Number.isNaN(year)) {
-      return { monthIndex, year };
-    }
-  }
-  return { monthIndex: new Date().getMonth(), year: currentBEYear() };
-}
-
-export default function AdminSettings({ onDataChange }) {
+export default function AdminSettings({ villageId, onDataChange }) {
   const [form, setForm] = useState(null);
-  const [monthIndex, setMonthIndex] = useState(0);
-  const [billYear, setBillYear] = useState(currentBEYear());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -36,44 +10,19 @@ export default function AdminSettings({ onDataChange }) {
 
   const load = () => {
     setLoading(true);
-    getSettings()
-      .then((s) => {
-        setForm(s);
-        const parsed = parseMonthLabel(s.month);
-        setMonthIndex(parsed.monthIndex);
-        setBillYear(parsed.year);
-      })
+    getSettings(villageId)
+      .then((s) => setForm(s))
       .catch((err) => setError(err.message || 'โหลดการตั้งค่าไม่สำเร็จ'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     load();
-  }, []);
-
-  // ปีให้เลือก: ย้อนหลัง 2 ปี ถึงล่วงหน้า 2 ปีจากปีปัจจุบัน (รวมปีที่ตั้งไว้เดิมเผื่ออยู่นอกช่วง)
-  const yearOptions = useMemo(() => {
-    const base = currentBEYear();
-    const years = new Set();
-    for (let y = base - 2; y <= base + 2; y += 1) years.add(y);
-    years.add(billYear);
-    return [...years].sort((a, b) => a - b);
-  }, [billYear]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [villageId]);
 
   const handleChange = (field) => (event) =>
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
-
-  const handleMonthIndexChange = (event) => {
-    const value = Number(event.target.value);
-    setMonthIndex(value);
-    setForm((prev) => ({ ...prev, month: `${THAI_MONTHS[value]} ${billYear}` }));
-  };
-
-  const handleYearChange = (event) => {
-    const value = Number(event.target.value);
-    setBillYear(value);
-    setForm((prev) => ({ ...prev, month: `${THAI_MONTHS[monthIndex]} ${value}` }));
-  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -81,11 +30,10 @@ export default function AdminSettings({ onDataChange }) {
     setMessage('');
     setSaving(true);
     try {
-      const updated = await updateSettings(form);
+      // ไม่ส่ง month มาด้วย เพราะย้ายไปตั้งที่หน้า "จดมิเตอร์" แล้ว เพื่อความสะดวก
+      const { month, ...rest } = form;
+      const updated = await updateSettings(villageId, rest);
       setForm(updated);
-      const parsed = parseMonthLabel(updated.month);
-      setMonthIndex(parsed.monthIndex);
-      setBillYear(parsed.year);
       setMessage('บันทึกการตั้งค่าเรียบร้อยแล้ว');
       onDataChange?.();
     } catch (err) {
@@ -103,7 +51,7 @@ export default function AdminSettings({ onDataChange }) {
       <div className="section-heading">
         <div>
           <h1>ตั้งค่าระบบ</h1>
-          <p>กำหนดเลขพร้อมเพย์จริง อัตราค่าน้ำ และรอบบิลปัจจุบัน</p>
+          <p>กำหนดเลขพร้อมเพย์จริง อัตราค่าน้ำ และค่าบริการ</p>
         </div>
       </div>
 
@@ -116,26 +64,6 @@ export default function AdminSettings({ onDataChange }) {
             placeholder="เช่น 0812345678"
             required
           />
-        </label>
-
-        <label>
-          รอบบิลปัจจุบัน
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select value={monthIndex} onChange={handleMonthIndexChange} style={{ flex: 2 }}>
-              {THAI_MONTHS.map((name, i) => (
-                <option key={name} value={i}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <select value={billYear} onChange={handleYearChange} style={{ flex: 1 }}>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
         </label>
 
         <label>
@@ -179,6 +107,13 @@ export default function AdminSettings({ onDataChange }) {
         ) : (
           <p className="muted">ยังไม่ได้ตั้งเลขพร้อมเพย์</p>
         )}
+      </div>
+
+      <div className="panel">
+        <p className="muted">
+          ต้องการเปลี่ยนรอบบิลปัจจุบัน (เดือน/ปี)? ไปตั้งค่าได้ที่หน้า "จดมิเตอร์" แทน
+          เพื่อความสะดวกตอนเริ่มรอบบิลใหม่
+        </p>
       </div>
     </section>
   );

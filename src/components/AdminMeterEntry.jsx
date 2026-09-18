@@ -1,6 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fileToDataUrl, getAll, getBilledHouseIds, getSettings, saveMeterReading } from '../utils/db';
+import {
+  fileToDataUrl,
+  getAll,
+  getBilledHouseIds,
+  getSettings,
+  saveMeterReading,
+  updateSettings,
+} from '../utils/db';
 import { calculateWaterBill } from '../utils/calculate';
+
+const THAI_MONTHS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+];
+
+function currentBEYear() {
+  return new Date().getFullYear() + 543;
+}
+
+// แยกข้อความ "กันยายน 2569" ออกเป็น index เดือน (0-11) กับปี พ.ศ.
+function parseMonthLabel(label) {
+  if (label) {
+    const parts = label.trim().split(/\s+/);
+    const year = parseInt(parts[parts.length - 1], 10);
+    const monthName = parts.slice(0, -1).join(' ');
+    const monthIndex = THAI_MONTHS.indexOf(monthName);
+    if (monthIndex !== -1 && !Number.isNaN(year)) {
+      return { monthIndex, year };
+    }
+  }
+  return { monthIndex: new Date().getMonth(), year: currentBEYear() };
+}
 
 function toLocalDatetimeValue(date) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -9,7 +39,7 @@ function toLocalDatetimeValue(date) {
   )}:${pad(date.getMinutes())}`;
 }
 
-export default function AdminMeterEntry({ onSaved }) {
+export default function AdminMeterEntry({ villageId, onSaved }) {
   const [houses, setHouses] = useState([]);
   const [settings, setSettings] = useState(null);
   const [billedHouseIds, setBilledHouseIds] = useState(new Set());
@@ -21,8 +51,25 @@ export default function AdminMeterEntry({ onSaved }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // ตัวเลือกเดือน/ปีของรอบบิล (ย้ายมาจากหน้าตั้งค่าเพื่อความสะดวก)
+  const [monthIndex, setMonthIndex] = useState(new Date().getMonth());
+  const [billYear, setBillYear] = useState(currentBEYear());
+  const [savingCycle, setSavingCycle] = useState(false);
+  const [cycleMessage, setCycleMessage] = useState('');
+
+  const yearOptions = useMemo(() => {
+    const base = currentBEYear();
+    const years = new Set();
+    for (let y = base - 2; y <= base + 2; y += 1) years.add(y);
+    years.add(billYear);
+    return [...years].sort((a, b) => a - b);
+  }, [billYear]);
+
   const loadHousesAndStatus = async (month) => {
-    const [houseList, billed] = await Promise.all([getAll('houses'), getBilledHouseIds(month)]);
+    const [houseList, billed] = await Promise.all([
+      getAll(villageId, 'houses'),
+      getBilledHouseIds(villageId, month),
+    ]);
     const sorted = [...houseList].sort((a, b) => a.houseNo.localeCompare(b.houseNo, 'th'));
     setHouses(sorted);
     setBilledHouseIds(billed);
@@ -30,15 +77,41 @@ export default function AdminMeterEntry({ onSaved }) {
   };
 
   useEffect(() => {
-    getSettings().then(async (billingSettings) => {
+    getSettings(villageId).then(async (billingSettings) => {
       setSettings(billingSettings);
+      const parsed = parseMonthLabel(billingSettings.month);
+      setMonthIndex(parsed.monthIndex);
+      setBillYear(parsed.year);
       const { sorted, billed } = await loadHousesAndStatus(billingSettings.month);
       // เลือกบ้านแรกที่ยังไม่ได้จดไว้ให้อัตโนมัติ (ถ้ามี) เพื่อลดการคลิกเลือกเอง
       const firstUnbilled = sorted.find((h) => !billed.has(h.id));
       setSelectedHouseId((firstUnbilled || sorted[0])?.id || '');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [villageId]);
+
+  const cycleChanged = settings
+    ? `${THAI_MONTHS[monthIndex]} ${billYear}` !== settings.month
+    : false;
+
+  const handleSaveCycle = async () => {
+    setSavingCycle(true);
+    setCycleMessage('');
+    try {
+      const newMonth = `${THAI_MONTHS[monthIndex]} ${billYear}`;
+      const updated = await updateSettings(villageId, { month: newMonth });
+      setSettings(updated);
+      setCycleMessage(`เปลี่ยนไปใช้รอบบิล "${updated.month}" แล้ว`);
+      const { sorted, billed } = await loadHousesAndStatus(updated.month);
+      const firstUnbilled = sorted.find((h) => !billed.has(h.id));
+      setSelectedHouseId((firstUnbilled || sorted[0])?.id || '');
+      onSaved?.();
+    } catch (err) {
+      setCycleMessage(err.message || 'เปลี่ยนรอบบิลไม่สำเร็จ');
+    } finally {
+      setSavingCycle(false);
+    }
+  };
 
   const alreadyBilled = selectedHouseId && billedHouseIds.has(selectedHouseId);
 
@@ -72,7 +145,7 @@ export default function AdminMeterEntry({ onSaved }) {
 
     setSaving(true);
     try {
-      const bill = await saveMeterReading({
+      const bill = await saveMeterReading(villageId, {
         houseId: selectedHouseId,
         currMeter,
         meterImage,
@@ -100,8 +173,45 @@ export default function AdminMeterEntry({ onSaved }) {
       <div className="section-heading">
         <div>
           <h1>จดมิเตอร์และสร้างบิล</h1>
-          <p>รอบบิล {settings.month} — บ้านที่จดแล้วจะขึ้น "✅ จดแล้ว" กำกับไว้ กดบันทึกซ้ำไม่ได้</p>
+          <p>บ้านที่จดแล้วจะขึ้น "✅ จดแล้ว" กำกับไว้ กดบันทึกซ้ำไม่ได้</p>
         </div>
+      </div>
+
+      <div className="panel form-grid" style={{ maxWidth: 480 }}>
+        <label>
+          รอบบิลปัจจุบัน
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select
+              value={monthIndex}
+              onChange={(e) => setMonthIndex(Number(e.target.value))}
+              style={{ flex: 2 }}
+            >
+              {THAI_MONTHS.map((name, i) => (
+                <option key={name} value={i}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={billYear}
+              onChange={(e) => setBillYear(Number(e.target.value))}
+              style={{ flex: 1 }}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        </label>
+
+        {cycleChanged && (
+          <button type="button" onClick={handleSaveCycle} disabled={savingCycle}>
+            {savingCycle ? 'กำลังบันทึก...' : `ใช้รอบบิล "${THAI_MONTHS[monthIndex]} ${billYear}"`}
+          </button>
+        )}
+        {cycleMessage && <div className="notice success">{cycleMessage}</div>}
       </div>
 
       <form className="panel form-grid" onSubmit={handleSubmit}>

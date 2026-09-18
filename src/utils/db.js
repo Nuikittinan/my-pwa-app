@@ -1,10 +1,7 @@
-// ชั้นข้อมูลของแอป — เดิมเก็บใน IndexedDB (เครื่องใครเครื่องมัน)
-// ตอนนี้ย้ายไปเก็บใน Supabase (Postgres กลางบนคลาวด์) แทน
-// เพื่อให้ผู้ดูแลและลูกบ้านเห็นข้อมูลเดียวกันไม่ว่าจะเปิดจากอุปกรณ์ไหน
-//
-// หมายเหตุสำคัญ: ฟังก์ชันทุกตัวที่ export จากไฟล์นี้ "ชื่อและรูปแบบข้อมูลที่คืนค่า
-// เหมือนเดิมทุกอย่าง" กับตอนใช้ IndexedDB ดังนั้น component อื่น (AdminDashboard,
-// AdminMeterEntry, UserDashboard, auth.js) ไม่ต้องแก้โค้ดเลย
+// ชั้นข้อมูลของแอป — ต่อกับ Supabase (Postgres กลางบนคลาวด์)
+// รองรับหลายหมู่บ้าน (multi-tenant): ทุกตารางมีคอลัมน์ village_id
+// ทุกฟังก์ชันที่อ่าน/เขียนข้อมูลของหมู่บ้าน จึงรับ villageId เป็นพารามิเตอร์แรกเสมอ
+// เพื่อกรองให้เห็น/แก้ไขได้แค่ข้อมูลของหมู่บ้านตัวเอง
 
 import { supabase } from './supabaseClient';
 
@@ -16,6 +13,7 @@ function toHouse(row) {
   if (!row) return null;
   return {
     id: row.id,
+    villageId: row.village_id,
     houseNo: row.house_no,
     ownerName: row.owner_name,
     phone: row.phone,
@@ -26,13 +24,20 @@ function toHouse(row) {
 
 function toAdmin(row) {
   if (!row) return null;
-  return { id: row.id, username: row.username, password: row.password, name: row.name };
+  return {
+    id: row.id,
+    villageId: row.village_id,
+    username: row.username,
+    password: row.password,
+    name: row.name,
+  };
 }
 
 function toBill(row, house) {
   if (!row) return null;
   return {
     id: row.id,
+    villageId: row.village_id,
     houseId: row.house_id,
     month: row.month,
     prevMeter: Number(row.prev_meter),
@@ -61,29 +66,57 @@ function toSettings(row) {
   };
 }
 
+function toVillage(row) {
+  if (!row) return null;
+  return { id: row.id, name: row.name };
+}
+
 function throwIfError(error, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
 }
 
-// ---------- คงชื่อฟังก์ชันนี้ไว้เพื่อ compatibility (auth.js เรียกตอนเปิดแอป) ----------
-// Supabase ไม่ต้อง "เปิดฐานข้อมูล" เหมือน IndexedDB จึงแค่ resolve เฉยๆ
+function requireVillageId(villageId) {
+  if (!villageId) throw new Error('ไม่พบหมู่บ้าน (villageId) — กรุณาเข้าสู่ระบบใหม่');
+}
+
+// ---------- คงชื่อฟังก์ชันนี้ไว้เพื่อ compatibility ----------
 export async function openDatabase() {
   return true;
 }
 
+// ---------- Villages (ใช้ตอนหน้า login เลือกหมู่บ้าน — ไม่ผูกกับ village ใด) ----------
+
+export async function getVillages() {
+  const { data, error } = await supabase.from('villages').select('*').order('name');
+  throwIfError(error, 'โหลดรายชื่อหมู่บ้านไม่สำเร็จ');
+  return data.map(toVillage);
+}
+
+export async function getVillageById(villageId) {
+  const { data, error } = await supabase
+    .from('villages')
+    .select('*')
+    .eq('id', villageId)
+    .maybeSingle();
+  throwIfError(error, 'โหลดข้อมูลหมู่บ้านไม่สำเร็จ');
+  return toVillage(data);
+}
+
 // ---------- Settings ----------
 
-export async function getSettings() {
+export async function getSettings(villageId) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('settings')
     .select('*')
-    .eq('id', 'billing')
+    .eq('village_id', villageId)
     .maybeSingle();
   throwIfError(error, 'โหลดการตั้งค่าไม่สำเร็จ');
   return toSettings(data);
 }
 
-export async function updateSettings({ month, ratePerUnit, baseFee, promptpayNo }) {
+export async function updateSettings(villageId, { month, ratePerUnit, baseFee, promptpayNo }) {
+  requireVillageId(villageId);
   const payload = {};
   if (month !== undefined) payload.month = month.trim();
   if (ratePerUnit !== undefined) payload.rate_per_unit = Number(ratePerUnit) || 0;
@@ -93,43 +126,56 @@ export async function updateSettings({ month, ratePerUnit, baseFee, promptpayNo 
   const { data, error } = await supabase
     .from('settings')
     .update(payload)
-    .eq('id', 'billing')
+    .eq('village_id', villageId)
     .select()
     .single();
   throwIfError(error, 'บันทึกการตั้งค่าไม่สำเร็จ');
   return toSettings(data);
 }
 
-// ---------- Generic getAll (ตอนนี้ใช้จริงแค่ 'houses' แต่เผื่อไว้ทั้งหมด) ----------
+// ---------- Generic getAll ----------
 
-export async function getAll(storeName) {
+export async function getAll(villageId, storeName) {
+  requireVillageId(villageId);
   if (storeName === 'houses') {
-    const { data, error } = await supabase.from('houses').select('*').order('house_no');
+    const { data, error } = await supabase
+      .from('houses')
+      .select('*')
+      .eq('village_id', villageId)
+      .order('house_no');
     throwIfError(error, 'โหลดรายชื่อบ้านไม่สำเร็จ');
     return data.map(toHouse);
   }
   if (storeName === 'bills') {
-    const { data, error } = await supabase.from('bills').select('*');
+    const { data, error } = await supabase.from('bills').select('*').eq('village_id', villageId);
     throwIfError(error, 'โหลดบิลไม่สำเร็จ');
     return data.map((r) => toBill(r));
   }
   if (storeName === 'admins') {
-    const { data, error } = await supabase.from('admins').select('*');
+    const { data, error } = await supabase.from('admins').select('*').eq('village_id', villageId);
     throwIfError(error, 'โหลดข้อมูลผู้ดูแลไม่สำเร็จ');
     return data.map(toAdmin);
   }
   throw new Error(`Unknown store: ${storeName}`);
 }
 
-export async function getHouseById(id) {
+export async function getHouseById(villageId, id) {
+  requireVillageId(villageId);
   if (!id) return null;
-  const { data, error } = await supabase.from('houses').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await supabase
+    .from('houses')
+    .select('*')
+    .eq('village_id', villageId)
+    .eq('id', id)
+    .maybeSingle();
   throwIfError(error, 'โหลดข้อมูลบ้านไม่สำเร็จ');
   return toHouse(data);
 }
 
-export async function addHouse({ houseNo, ownerName, phone, password, lastMeter }) {
+export async function addHouse(villageId, { houseNo, ownerName, phone, password, lastMeter }) {
+  requireVillageId(villageId);
   const payload = {
+    village_id: villageId,
     house_no: houseNo.trim(),
     owner_name: ownerName.trim(),
     phone: phone?.trim() || null,
@@ -142,7 +188,8 @@ export async function addHouse({ houseNo, ownerName, phone, password, lastMeter 
   return toHouse(data);
 }
 
-export async function updateHouse(id, { houseNo, ownerName, phone, password, lastMeter }) {
+export async function updateHouse(villageId, id, { houseNo, ownerName, phone, password, lastMeter }) {
+  requireVillageId(villageId);
   const payload = {};
   if (houseNo !== undefined) payload.house_no = houseNo.trim();
   if (ownerName !== undefined) payload.owner_name = ownerName.trim();
@@ -150,53 +197,68 @@ export async function updateHouse(id, { houseNo, ownerName, phone, password, las
   if (password !== undefined && password.trim()) payload.password = password.trim();
   if (lastMeter !== undefined) payload.last_meter = Number(lastMeter) || 0;
 
-  const { data, error } = await supabase.from('houses').update(payload).eq('id', id).select().single();
+  const { data, error } = await supabase
+    .from('houses')
+    .update(payload)
+    .eq('village_id', villageId)
+    .eq('id', id)
+    .select()
+    .single();
   if (error?.code === '23505') throw new Error('มีเลขที่บ้านนี้อยู่แล้ว');
   throwIfError(error, 'แก้ไขข้อมูลบ้านไม่สำเร็จ');
   return toHouse(data);
 }
 
-export async function deleteHouse(id) {
+export async function deleteHouse(villageId, id) {
+  requireVillageId(villageId);
   // ลบบิลของบ้านนี้ก่อน (กันกรณี on delete cascade ยังไม่ทำงานตามที่คาด)
-  await supabase.from('bills').delete().eq('house_id', id);
-  const { error } = await supabase.from('houses').delete().eq('id', id);
+  await supabase.from('bills').delete().eq('village_id', villageId).eq('house_id', id);
+  const { error } = await supabase.from('houses').delete().eq('village_id', villageId).eq('id', id);
   throwIfError(error, 'ลบบ้านไม่สำเร็จ');
 }
 
-export async function getHouseByHouseNo(houseNo) {
+export async function getHouseByHouseNo(villageId, houseNo) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('houses')
     .select('*')
+    .eq('village_id', villageId)
     .eq('house_no', houseNo.trim())
     .maybeSingle();
   throwIfError(error, 'โหลดข้อมูลบ้านไม่สำเร็จ');
   return toHouse(data);
 }
 
-export async function getAdminByUsername(username) {
+export async function getAdminByUsername(villageId, username) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('admins')
     .select('*')
+    .eq('village_id', villageId)
     .eq('username', username.trim())
     .maybeSingle();
   throwIfError(error, 'โหลดข้อมูลผู้ดูแลไม่สำเร็จ');
   return toAdmin(data);
 }
 
-export async function getBillsByHouseId(houseId) {
+export async function getBillsByHouseId(villageId, houseId) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .select('*')
+    .eq('village_id', villageId)
     .eq('house_id', houseId)
     .order('recorded_at', { ascending: false });
   throwIfError(error, 'โหลดบิลของบ้านไม่สำเร็จ');
   return data.map((r) => toBill(r));
 }
 
-export async function getBillWithHouse(billId) {
+export async function getBillWithHouse(villageId, billId) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .select('*, houses(*)')
+    .eq('village_id', villageId)
     .eq('id', billId)
     .maybeSingle();
   throwIfError(error, 'โหลดบิลไม่สำเร็จ');
@@ -205,16 +267,23 @@ export async function getBillWithHouse(billId) {
   return toBill(billRow, toHouse(houseRow));
 }
 
-export async function getBilledHouseIds(month) {
-  const { data, error } = await supabase.from('bills').select('house_id').eq('month', month);
+export async function getBilledHouseIds(villageId, month) {
+  requireVillageId(villageId);
+  const { data, error } = await supabase
+    .from('bills')
+    .select('house_id')
+    .eq('village_id', villageId)
+    .eq('month', month);
   throwIfError(error, 'ตรวจสอบรายชื่อบ้านที่จดแล้วไม่สำเร็จ');
   return new Set(data.map((r) => r.house_id));
 }
 
-export async function getBillForHouseAndMonth(houseId, month) {
+export async function getBillForHouseAndMonth(villageId, houseId, month) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .select('*')
+    .eq('village_id', villageId)
     .eq('house_id', houseId)
     .eq('month', month)
     .maybeSingle();
@@ -222,26 +291,28 @@ export async function getBillForHouseAndMonth(houseId, month) {
   return toBill(data);
 }
 
-export async function saveMeterReading({ houseId, currMeter, meterImage, recordedAt }) {
-  const house = await getHouseById(houseId);
+export async function saveMeterReading(villageId, { houseId, currMeter, meterImage, recordedAt }) {
+  requireVillageId(villageId);
+  const house = await getHouseById(villageId, houseId);
   if (!house) throw new Error('ไม่พบบ้านที่เลือก');
 
   const current = Number(currMeter);
   if (!Number.isFinite(current)) throw new Error('กรุณากรอกเลขมิเตอร์ให้ถูกต้อง');
   if (current < house.lastMeter) throw new Error('เลขมิเตอร์ปัจจุบันต้องไม่น้อยกว่าเดือนก่อน');
 
-  const settings = await getSettings();
+  const settings = await getSettings(villageId);
   const units = current - house.lastMeter;
   const waterFee = units * settings.ratePerUnit;
   const amount = waterFee + settings.baseFee;
 
-  // บ้านนี้จดมิเตอร์ของรอบบิลนี้ไปแล้ว -> ห้ามบันทึกซ้ำ (กันจดซ้ำ/ทับข้อมูลเดิมโดยไม่ตั้งใจ)
-  const existingRow = await getBillForHouseAndMonth(houseId, settings.month);
+  // บ้านนี้จดมิเตอร์ของรอบบิลนี้ไปแล้ว -> ห้ามบันทึกซ้ำ
+  const existingRow = await getBillForHouseAndMonth(villageId, houseId, settings.month);
   if (existingRow) {
     throw new Error(`บ้าน ${house.houseNo} จดมิเตอร์ของรอบ "${settings.month}" ไปแล้ว ไม่สามารถบันทึกซ้ำได้`);
   }
 
   const payload = {
+    village_id: villageId,
     house_id: houseId,
     month: settings.month,
     prev_meter: house.lastMeter,
@@ -271,13 +342,15 @@ export async function saveMeterReading({ houseId, currMeter, meterImage, recorde
   const { error: houseError } = await supabase
     .from('houses')
     .update({ last_meter: current })
+    .eq('village_id', villageId)
     .eq('id', houseId);
   throwIfError(houseError, 'อัปเดตเลขมิเตอร์ของบ้านไม่สำเร็จ');
 
   return toBill(savedBill, { ...house, lastMeter: current });
 }
 
-export async function savePaymentSlip(billId, slipImage) {
+export async function savePaymentSlip(villageId, billId, slipImage) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .update({
@@ -285,6 +358,7 @@ export async function savePaymentSlip(billId, slipImage) {
       status: 'pending',
       submitted_at: new Date().toISOString(),
     })
+    .eq('village_id', villageId)
     .eq('id', billId)
     .select()
     .single();
@@ -292,10 +366,12 @@ export async function savePaymentSlip(billId, slipImage) {
   return toBill(data);
 }
 
-export async function updateBillStatus(billId, status) {
+export async function updateBillStatus(villageId, billId, status) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .update({ status, paid_at: status === 'paid' ? new Date().toISOString() : null })
+    .eq('village_id', villageId)
     .eq('id', billId)
     .select()
     .single();
@@ -303,14 +379,16 @@ export async function updateBillStatus(billId, status) {
   return toBill(data);
 }
 
-export async function getMonthlyUsageSummary() {
+export async function getMonthlyUsageSummary(villageId) {
+  requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
     .select('month, units, amount, recorded_at')
+    .eq('village_id', villageId)
     .order('recorded_at', { ascending: true });
   throwIfError(error, 'โหลดข้อมูลการใช้น้ำรายเดือนไม่สำเร็จ');
 
-  const map = new Map(); // month -> { totalUnits, totalAmount, firstRecordedAt }
+  const map = new Map();
   for (const row of data) {
     const entry = map.get(row.month) || {
       totalUnits: 0,
@@ -332,10 +410,15 @@ export async function getMonthlyUsageSummary() {
     .sort((a, b) => new Date(a.firstRecordedAt) - new Date(b.firstRecordedAt));
 }
 
-export async function getAvailableMonths() {
+export async function getAvailableMonths(villageId) {
+  requireVillageId(villageId);
   const [billsResult, settings] = await Promise.all([
-    supabase.from('bills').select('month').order('recorded_at', { ascending: true }),
-    getSettings(),
+    supabase
+      .from('bills')
+      .select('month')
+      .eq('village_id', villageId)
+      .order('recorded_at', { ascending: true }),
+    getSettings(villageId),
   ]);
   throwIfError(billsResult.error, 'โหลดรายชื่อรอบบิลไม่สำเร็จ');
 
@@ -343,15 +426,16 @@ export async function getAvailableMonths() {
   for (const row of billsResult.data) {
     if (!months.includes(row.month)) months.push(row.month);
   }
-  if (!months.includes(settings.month)) months.push(settings.month); // เผื่อรอบปัจจุบันยังไม่มีบิลเลยสักใบ
-  return months; // เรียงจากเก่าไปใหม่ ตามลำดับเวลาที่บันทึกจริง
+  if (!months.includes(settings.month)) months.push(settings.month);
+  return months;
 }
 
-export async function getDashboardData(targetMonth) {
+export async function getDashboardData(villageId, targetMonth) {
+  requireVillageId(villageId);
   const [housesResult, billsResult, settings] = await Promise.all([
-    supabase.from('houses').select('*').order('house_no'),
-    supabase.from('bills').select('*'),
-    getSettings(),
+    supabase.from('houses').select('*').eq('village_id', villageId).order('house_no'),
+    supabase.from('bills').select('*').eq('village_id', villageId),
+    getSettings(villageId),
   ]);
   throwIfError(housesResult.error, 'โหลดรายชื่อบ้านไม่สำเร็จ');
   throwIfError(billsResult.error, 'โหลดบิลไม่สำเร็จ');
@@ -376,8 +460,6 @@ export async function getDashboardData(targetMonth) {
     summary: {
       month,
       isCurrentMonth,
-      // "ยังไม่ได้จด" มีความหมายเฉพาะรอบบิลปัจจุบันเท่านั้น เดือนเก่าที่ปิดรอบไปแล้ว
-      // บ้านที่ไม่มีบิลไม่ได้แปลว่า "ค้างจด" อีกต่อไป
       totalHouses: houses.length,
       recorded: monthBills.length,
       pending: isCurrentMonth ? Math.max(0, houses.length - monthBills.length) : 0,
@@ -389,20 +471,21 @@ export async function getDashboardData(targetMonth) {
   };
 }
 
-export async function exportDatabase() {
+export async function exportDatabase(villageId) {
+  requireVillageId(villageId);
   const [admins, houses, bills, settingsRows] = await Promise.all([
-    supabase.from('admins').select('*').then((r) => r.data || []),
-    supabase.from('houses').select('*').then((r) => r.data || []),
-    supabase.from('bills').select('*').then((r) => r.data || []),
-    supabase.from('settings').select('*').then((r) => r.data || []),
+    supabase.from('admins').select('*').eq('village_id', villageId).then((r) => r.data || []),
+    supabase.from('houses').select('*').eq('village_id', villageId).then((r) => r.data || []),
+    supabase.from('bills').select('*').eq('village_id', villageId).then((r) => r.data || []),
+    supabase.from('settings').select('*').eq('village_id', villageId).then((r) => r.data || []),
   ]);
   return { exportedAt: new Date().toISOString(), admins, houses, bills, settings: settingsRows };
 }
 
-// ยอมรับไฟล์ backup ทั้งแบบเก่า (camelCase จาก IndexedDB) และแบบใหม่ (snake_case จาก Supabase)
-function normalizeHouseForImport(h) {
+function normalizeHouseForImport(villageId, h) {
   return {
     id: h.id,
+    village_id: villageId,
     house_no: h.house_no ?? h.houseNo,
     owner_name: h.owner_name ?? h.ownerName,
     phone: h.phone ?? null,
@@ -411,9 +494,10 @@ function normalizeHouseForImport(h) {
   };
 }
 
-function normalizeBillForImport(b) {
+function normalizeBillForImport(villageId, b) {
   return {
     id: b.id,
+    village_id: villageId,
     house_id: b.house_id ?? b.houseId,
     month: b.month,
     prev_meter: b.prev_meter ?? b.prevMeter,
@@ -432,14 +516,14 @@ function normalizeBillForImport(b) {
   };
 }
 
-function normalizeAdminForImport(a) {
-  return { id: a.id, username: a.username, password: a.password, name: a.name };
+function normalizeAdminForImport(villageId, a) {
+  return { id: a.id, village_id: villageId, username: a.username, password: a.password, name: a.name };
 }
 
-function normalizeSettingsForImport(s) {
-  if (s.id !== 'billing') return null; // ข้าม row เมทาดาต้าเก่าๆ เช่น {id:'seeded'}
+function normalizeSettingsForImport(villageId, s) {
+  if (s.id && s.id !== 'billing' && s.village_id !== villageId) return null;
   return {
-    id: 'billing',
+    village_id: villageId,
     month: s.month,
     rate_per_unit: s.rate_per_unit ?? s.ratePerUnit,
     base_fee: s.base_fee ?? s.baseFee,
@@ -447,24 +531,33 @@ function normalizeSettingsForImport(s) {
   };
 }
 
-export async function importDatabase(payload) {
-  // นำเข้าทับของเดิม (upsert ตาม id) — ใช้ตอนกู้คืนจากไฟล์สำรองเท่านั้น
+export async function importDatabase(villageId, payload) {
+  requireVillageId(villageId);
+  // นำเข้าทับของเดิม (upsert ตาม id) — ใช้ตอนกู้คืนจากไฟล์สำรองของหมู่บ้านนี้เท่านั้น
   if (payload.houses?.length) {
-    const { error } = await supabase.from('houses').upsert(payload.houses.map(normalizeHouseForImport));
+    const { error } = await supabase
+      .from('houses')
+      .upsert(payload.houses.map((h) => normalizeHouseForImport(villageId, h)));
     throwIfError(error, 'นำเข้าข้อมูลบ้านไม่สำเร็จ');
   }
   if (payload.admins?.length) {
-    const { error } = await supabase.from('admins').upsert(payload.admins.map(normalizeAdminForImport));
+    const { error } = await supabase
+      .from('admins')
+      .upsert(payload.admins.map((a) => normalizeAdminForImport(villageId, a)));
     throwIfError(error, 'นำเข้าข้อมูลผู้ดูแลไม่สำเร็จ');
   }
   if (payload.bills?.length) {
-    const { error } = await supabase.from('bills').upsert(payload.bills.map(normalizeBillForImport));
+    const { error } = await supabase
+      .from('bills')
+      .upsert(payload.bills.map((b) => normalizeBillForImport(villageId, b)));
     throwIfError(error, 'นำเข้าข้อมูลบิลไม่สำเร็จ');
   }
   if (payload.settings?.length) {
-    const rows = payload.settings.map(normalizeSettingsForImport).filter(Boolean);
+    const rows = payload.settings
+      .map((s) => normalizeSettingsForImport(villageId, s))
+      .filter(Boolean);
     if (rows.length) {
-      const { error } = await supabase.from('settings').upsert(rows);
+      const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'village_id' });
       throwIfError(error, 'นำเข้าการตั้งค่าไม่สำเร็จ');
     }
   }

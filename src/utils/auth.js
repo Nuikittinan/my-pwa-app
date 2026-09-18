@@ -1,6 +1,6 @@
-import { getAdminByUsername, getHouseByHouseNo, openDatabase } from './db';
+import { getAdminByUsername, getHouseByHouseNo, getVillageById, getVillages, openDatabase } from './db';
 
-const SESSION_KEY = 'wm_session_v2';
+const SESSION_KEY = 'wm_session_v3';
 
 export async function initializeAppData() {
   await openDatabase();
@@ -11,21 +11,35 @@ function saveSession(session) {
   return session;
 }
 
-export async function loginAdmin(username, password) {
-  const found = await getAdminByUsername(username);
+export async function listVillages() {
+  return getVillages();
+}
+
+export async function loginAdmin(villageId, username, password) {
+  const found = await getAdminByUsername(villageId, username);
   if (!found || found.password !== password) {
     throw new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
   }
-  return saveSession({ role: 'admin', username: found.username, name: found.name });
+  const village = await getVillageById(villageId);
+  return saveSession({
+    role: 'admin',
+    villageId,
+    villageName: village?.name || '',
+    username: found.username,
+    name: found.name,
+  });
 }
 
-export async function loginResident(houseNo, password) {
-  const found = await getHouseByHouseNo(houseNo);
+export async function loginResident(villageId, houseNo, password) {
+  const found = await getHouseByHouseNo(villageId, houseNo);
   if (!found || found.password !== password) {
     throw new Error('เลขบ้านหรือรหัสผ่านไม่ถูกต้อง');
   }
+  const village = await getVillageById(villageId);
   return saveSession({
     role: 'user',
+    villageId,
+    villageName: village?.name || '',
     id: found.id,
     houseNo: found.houseNo,
     ownerName: found.ownerName,

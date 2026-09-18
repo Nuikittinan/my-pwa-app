@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fileToDataUrl, getBillsByHouseId, getHouseById, getSettings, savePaymentSlip } from '../utils/db';
 
-export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
+export default function UserDashboard({ villageId, houseId, refreshKey, onDataChange }) {
   const [house, setHouse] = useState(null);
   const [bills, setBills] = useState([]);
   const [settings, setSettings] = useState(null);
@@ -16,9 +16,9 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
     async function loadData() {
       setLoading(true);
       const [houseData, billList, billingSettings] = await Promise.all([
-        getHouseById(houseId),
-        getBillsByHouseId(houseId),
-        getSettings(),
+        getHouseById(villageId, houseId),
+        getBillsByHouseId(villageId, houseId),
+        getSettings(villageId),
       ]);
       if (!mounted) return;
       const sorted = [...billList].sort(
@@ -48,7 +48,7 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
     return () => {
       mounted = false;
     };
-  }, [houseId, refreshKey]);
+  }, [villageId, houseId, refreshKey]);
 
   const unpaidBills = useMemo(() => bills.filter((b) => b.status !== 'paid'), [bills]);
   const totalOutstanding = useMemo(
@@ -61,7 +61,7 @@ export default function UserDashboard({ houseId, refreshKey, onDataChange }) {
     const file = event.target.files?.[0];
     if (!file || !selectedBill) return;
     const dataUrl = await fileToDataUrl(file);
-    await savePaymentSlip(selectedBill.id, dataUrl);
+    await savePaymentSlip(villageId, selectedBill.id, dataUrl);
     event.target.value = '';
     onDataChange();
   };

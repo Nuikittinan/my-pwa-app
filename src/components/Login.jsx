@@ -1,22 +1,38 @@
-import { useState } from 'react';
-import { loginAdmin, loginResident } from '../utils/auth';
+import { useEffect, useState } from 'react';
+import { listVillages, loginAdmin, loginResident } from '../utils/auth';
 
 export default function Login({ onLoginSuccess }) {
+  const [villages, setVillages] = useState(null);
+  const [villagesError, setVillagesError] = useState('');
+  const [villageId, setVillageId] = useState('');
   const [mode, setMode] = useState('admin'); // 'admin' | 'user'
   const [idValue, setIdValue] = useState(''); // username หรือ เลขบ้าน
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    listVillages()
+      .then((list) => {
+        setVillages(list);
+        if (list.length > 0) setVillageId(list[0].id);
+      })
+      .catch((err) => setVillagesError(err.message || 'โหลดรายชื่อหมู่บ้านไม่สำเร็จ'));
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!villageId) {
+      setError('กรุณาเลือกหมู่บ้าน');
+      return;
+    }
     setLoading(true);
     try {
       const session =
         mode === 'admin'
-          ? await loginAdmin(idValue, password)
-          : await loginResident(idValue, password);
+          ? await loginAdmin(villageId, idValue, password)
+          : await loginResident(villageId, idValue, password);
       onLoginSuccess(session);
     } catch (err) {
       setError(err.message);
@@ -54,6 +70,25 @@ export default function Login({ onLoginSuccess }) {
         <p style={{ color: '#999', margin: '0 0 20px 0', textAlign: 'center', fontSize: 14 }}>
           เข้าสู่ระบบเพื่อใช้งาน
         </p>
+
+        <label style={labelStyle}>หมู่บ้าน</label>
+        {villagesError ? (
+          <div style={errorBoxStyle}>⚠️ {villagesError}</div>
+        ) : (
+          <select
+            value={villageId}
+            onChange={(e) => setVillageId(e.target.value)}
+            style={inputStyle}
+            disabled={!villages}
+          >
+            {!villages && <option>กำลังโหลด...</option>}
+            {villages?.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Tabs สลับโหมด */}
         <div
@@ -110,22 +145,9 @@ export default function Login({ onLoginSuccess }) {
             style={inputStyle}
           />
 
-          {error && (
-            <div
-              style={{
-                color: '#f28b82',
-                backgroundColor: '#3a1f1f',
-                padding: '8px 12px',
-                borderRadius: 8,
-                fontSize: 13,
-                marginBottom: 12,
-              }}
-            >
-              ⚠️ {error}
-            </div>
-          )}
+          {error && <div style={errorBoxStyle}>⚠️ {error}</div>}
 
-          <button type="submit" disabled={loading} style={submitStyle}>
+          <button type="submit" disabled={loading || !villageId} style={submitStyle}>
             {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
           </button>
         </form>
@@ -169,6 +191,15 @@ const inputStyle = {
   color: '#fff',
   fontSize: 15,
   boxSizing: 'border-box',
+};
+
+const errorBoxStyle = {
+  color: '#f28b82',
+  backgroundColor: '#3a1f1f',
+  padding: '8px 12px',
+  borderRadius: 8,
+  fontSize: 13,
+  marginBottom: 12,
 };
 
 const submitStyle = {
