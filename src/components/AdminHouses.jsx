@@ -36,7 +36,9 @@ export default function AdminHouses({ villageId, onDataChange }) {
 
   const handleImageUpload = async (event) => {
     const file = event.target.files?.[0];
-    if (file) setForm((prev) => ({ ...prev, meterImage: await fileToDataUrl(file) }));
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setForm((prev) => ({ ...prev, meterImage: dataUrl }));
   };
 
   const handleSubmit = async (event) => {
