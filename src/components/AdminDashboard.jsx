@@ -196,9 +196,15 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
                     )}
                   </td>
                   <td>
-                    <button className="secondary" onClick={() => setEditingBill(bill)}>
-                      แก้ไข
-                    </button>
+                    {bill.status === 'paid' ? (
+                      <span className="muted" title="บิลที่ชำระแล้วแก้ไขไม่ได้">
+                        แก้ไขไม่ได้
+                      </span>
+                    ) : (
+                      <button className="secondary" onClick={() => setEditingBill(bill)}>
+                        แก้ไข
+                      </button>
+                    )}
                   </td>
                   <td>
                     {bill.status === 'pending' ? (
@@ -374,13 +380,6 @@ function EditBillModal({ villageId, bill, onClose, onSaved }) {
             จำนวนหน่วยใหม่: <strong>{units}</strong>
           </span>
         </div>
-
-        {bill.status === 'paid' && (
-          <div className="notice error">
-            บิลนี้ชำระแล้ว — ถ้าแก้เลขมิเตอร์ ยอดเงินจะถูกคำนวณใหม่ แต่สถานะยังคงเป็น
-            "ชำระแล้ว" เหมือนเดิม กรุณาตรวจสอบยอดที่รับจริงเทียบกับยอดใหม่ด้วยตัวเอง
-          </div>
-        )}
 
         {error && <div className="notice error">{error}</div>}
 

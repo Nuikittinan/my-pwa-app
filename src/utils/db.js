@@ -430,6 +430,9 @@ export async function updateMeterReading(villageId, billId, { currMeter, meterIm
     .maybeSingle();
   throwIfError(findError, 'โหลดบิลไม่สำเร็จ');
   if (!billRow) throw new Error('ไม่พบบิลนี้');
+  if (billRow.status === 'paid') {
+    throw new Error('บิลนี้ชำระเงินแล้ว ไม่สามารถแก้ไขได้');
+  }
 
   const house = await getHouseById(villageId, billRow.house_id);
   if (!house) throw new Error('ไม่พบบ้านของบิลนี้');
