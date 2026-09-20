@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import AdminUsageChart from './AdminUsageChart';
 import {
   exportDatabase,
+  fileToDataUrl,
   getAvailableMonths,
   getDashboardData,
   importDatabase,
   updateBillStatus,
+  updateMeterReading,
 } from '../utils/db';
 
 export default function AdminDashboard({ villageId, refreshKey, onDataChange }) {
@@ -14,6 +16,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [error, setError] = useState('');
   const [viewingSlip, setViewingSlip] = useState(null);
+  const [editingBill, setEditingBill] = useState(null);
 
   // โหลดรายชื่อรอบบิลทั้งหมดที่มีอยู่ (ครั้งแรก + ทุกครั้งที่มีการเปลี่ยนแปลงข้อมูล)
   useEffect(() => {
@@ -148,6 +151,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
                 <th>ยอด</th>
                 <th>สถานะ</th>
                 <th>หลักฐาน</th>
+                <th>แก้ไข</th>
                 <th>จัดการ</th>
               </tr>
             </thead>
@@ -192,6 +196,11 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
                     )}
                   </td>
                   <td>
+                    <button className="secondary" onClick={() => setEditingBill(bill)}>
+                      แก้ไข
+                    </button>
+                  </td>
+                  <td>
                     {bill.status === 'pending' ? (
                       <div className="row-actions">
                         <button onClick={() => handleApprove(bill.id)}>อนุมัติ</button>
@@ -207,7 +216,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
               ))}
               {bills.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="empty">
+                  <td colSpan="9" className="empty">
                     {summary.isCurrentMonth
                       ? 'ยังไม่มีบิลรอบนี้ ให้ไปที่เมนูจดมิเตอร์เพื่อสร้างบิล'
                       : 'ไม่พบบิลของรอบนี้'}
@@ -251,7 +260,140 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
           </div>
         </div>
       )}
+      {editingBill && (
+        <EditBillModal
+          villageId={villageId}
+          bill={editingBill}
+          onClose={() => setEditingBill(null)}
+          onSaved={() => {
+            setEditingBill(null);
+            onDataChange();
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+function toLocalDatetimeValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function EditBillModal({ villageId, bill, onClose, onSaved }) {
+  const [currMeter, setCurrMeter] = useState(String(bill.currMeter));
+  const [meterImage, setMeterImage] = useState(bill.meterImage);
+  const [recordedAt, setRecordedAt] = useState(() =>
+    toLocalDatetimeValue(bill.recordedAt ? new Date(bill.recordedAt) : new Date())
+  );
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const units = Math.max(0, Number(currMeter) - bill.prevMeter);
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) setMeterImage(await fileToDataUrl(file));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      await updateMeterReading(villageId, bill.id, { currMeter, meterImage, recordedAt });
+      onSaved();
+    } catch (err) {
+      setError(err.message || 'แก้ไขบิลไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+        zIndex: 1000,
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={handleSubmit}
+        className="panel form-grid"
+        style={{ maxWidth: 380, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <h2 style={{ margin: 0 }}>
+          แก้ไขบิล — {bill.house?.houseNo} ({bill.month})
+        </h2>
+
+        <label>
+          เลขมิเตอร์เดือนก่อน (แก้ไขไม่ได้)
+          <input type="number" value={bill.prevMeter} disabled />
+        </label>
+
+        <label>
+          เลขมิเตอร์ปัจจุบัน
+          <input
+            type="number"
+            min={bill.prevMeter}
+            value={currMeter}
+            onChange={(e) => setCurrMeter(e.target.value)}
+            required
+          />
+        </label>
+
+        <label>
+          วันเวลาที่จดมิเตอร์
+          <input
+            type="datetime-local"
+            value={recordedAt}
+            onChange={(e) => setRecordedAt(e.target.value)}
+            required
+          />
+        </label>
+
+        <label>
+          รูปมิเตอร์
+          <input type="file" accept="image/*" onChange={handleImageUpload} />
+        </label>
+
+        {meterImage && <img className="preview-image" src={meterImage} alt="รูปมิเตอร์" />}
+
+        <div className="estimate">
+          <span>
+            จำนวนหน่วยใหม่: <strong>{units}</strong>
+          </span>
+        </div>
+
+        {bill.status === 'paid' && (
+          <div className="notice error">
+            บิลนี้ชำระแล้ว — ถ้าแก้เลขมิเตอร์ ยอดเงินจะถูกคำนวณใหม่ แต่สถานะยังคงเป็น
+            "ชำระแล้ว" เหมือนเดิม กรุณาตรวจสอบยอดที่รับจริงเทียบกับยอดใหม่ด้วยตัวเอง
+          </div>
+        )}
+
+        {error && <div className="notice error">{error}</div>}
+
+        <div className="row-actions">
+          <button type="submit" disabled={saving}>
+            {saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+          </button>
+          <button type="button" className="secondary" onClick={onClose}>
+            ยกเลิก
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

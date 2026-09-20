@@ -415,7 +415,71 @@ export async function saveMeterReading(villageId, { houseId, currMeter, meterIma
   return toBill(savedBill, { ...house, lastMeter: current });
 }
 
-export async function savePaymentSlip(villageId, billId, slipImage) {
+/**
+ * แก้ไขบิลที่จดผิด — แก้ได้เฉพาะ "บิลล่าสุด" ของบ้านนั้น (เลขมิเตอร์ล่าสุดของบ้าน
+ * ตรงกับ currMeter เดิมของบิลนี้) เพื่อกันไม่ให้ลูกโซ่ prevMeter ของบิลเดือนถัดๆ ไปเพี้ยน
+ * ถ้ามีบิลเดือนใหม่กว่าเกิดขึ้นแล้ว จะแก้ไขบิลเก่าไม่ได้ (ต้องแก้ผ่าน Supabase เอง)
+ */
+export async function updateMeterReading(villageId, billId, { currMeter, meterImage, recordedAt }) {
+  requireVillageId(villageId);
+  const { data: billRow, error: findError } = await supabase
+    .from('bills')
+    .select('*')
+    .eq('village_id', villageId)
+    .eq('id', billId)
+    .maybeSingle();
+  throwIfError(findError, 'โหลดบิลไม่สำเร็จ');
+  if (!billRow) throw new Error('ไม่พบบิลนี้');
+
+  const house = await getHouseById(villageId, billRow.house_id);
+  if (!house) throw new Error('ไม่พบบ้านของบิลนี้');
+
+  if (house.lastMeter !== Number(billRow.curr_meter)) {
+    throw new Error(
+      'แก้ไขบิลนี้ไม่ได้ เพราะมีการจดมิเตอร์รอบถัดไปของบ้านนี้ไปแล้ว (แก้ได้เฉพาะบิลล่าสุดของแต่ละบ้านเท่านั้น)'
+    );
+  }
+
+  const current = Number(currMeter);
+  if (!Number.isFinite(current)) throw new Error('กรุณากรอกเลขมิเตอร์ให้ถูกต้อง');
+  if (current < Number(billRow.prev_meter)) {
+    throw new Error('เลขมิเตอร์ปัจจุบันต้องไม่น้อยกว่าเลขมิเตอร์เดือนก่อน');
+  }
+
+  const settings = await getSettings(villageId);
+  const units = current - Number(billRow.prev_meter);
+  const waterFee = units * settings.ratePerUnit;
+  const amount = waterFee + settings.baseFee;
+
+  const payload = {
+    curr_meter: current,
+    units,
+    water_fee: waterFee,
+    base_fee: settings.baseFee,
+    amount,
+    meter_image: meterImage !== undefined ? meterImage : billRow.meter_image,
+    recorded_at: recordedAt ? new Date(recordedAt).toISOString() : billRow.recorded_at,
+  };
+
+  const { data: savedBill, error: billError } = await supabase
+    .from('bills')
+    .update(payload)
+    .eq('village_id', villageId)
+    .eq('id', billId)
+    .select()
+    .single();
+  throwIfError(billError, 'แก้ไขบิลไม่สำเร็จ');
+
+  // บิลนี้เป็นบิลล่าสุดของบ้าน -> ต้องอัปเดตเลขมิเตอร์ล่าสุดของบ้านให้ตรงกับค่าที่แก้ใหม่ด้วย
+  const { error: houseError } = await supabase
+    .from('houses')
+    .update({ last_meter: current })
+    .eq('village_id', villageId)
+    .eq('id', house.id);
+  throwIfError(houseError, 'อัปเดตเลขมิเตอร์ของบ้านไม่สำเร็จ');
+
+  return toBill(savedBill, { ...house, lastMeter: current });
+}
   requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
