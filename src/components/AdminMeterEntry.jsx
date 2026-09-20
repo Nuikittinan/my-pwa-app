@@ -3,6 +3,7 @@ import {
   fileToDataUrl,
   getAll,
   getBilledHouseIds,
+  getBillsByHouseId,
   getSettings,
   saveMeterReading,
   updateSettings,
@@ -50,6 +51,8 @@ export default function AdminMeterEntry({ villageId, onSaved }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [houseBills, setHouseBills] = useState([]);
+  const [viewingImage, setViewingImage] = useState(null);
 
   // ตัวเลือกเดือน/ปีของรอบบิล (ย้ายมาจากหน้าตั้งค่าเพื่อความสะดวก)
   const [monthIndex, setMonthIndex] = useState(new Date().getMonth());
@@ -116,6 +119,30 @@ export default function AdminMeterEntry({ villageId, onSaved }) {
   const alreadyBilled = selectedHouseId && billedHouseIds.has(selectedHouseId);
 
   const selectedHouse = houses.find((house) => house.id === selectedHouseId);
+
+  useEffect(() => {
+    if (!selectedHouseId) {
+      setHouseBills([]);
+      return;
+    }
+    let mounted = true;
+    getBillsByHouseId(villageId, selectedHouseId)
+      .then((list) => {
+        if (mounted) setHouseBills(list);
+      })
+      .catch(() => {
+        if (mounted) setHouseBills([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [villageId, selectedHouseId]);
+
+  // บิลของรอบก่อนหน้า (ไม่ใช่รอบปัจจุบันที่กำลังจะจด) ใช้เอารูปมิเตอร์มาเทียบให้แอดมินดู
+  const previousBill = houseBills.find((b) => b.month !== settings?.month);
+  const previousMeterImage = previousBill?.meterImage || selectedHouse?.initialMeterImage || null;
+  const previousMeterLabel = previousBill ? previousBill.month : 'รูปตั้งต้น (ตอนลงทะเบียนบ้าน)';
+
   const estimate = useMemo(() => {
     if (!selectedHouse || !settings) return null;
     const result = calculateWaterBill(selectedHouse.lastMeter, currMeter);
@@ -232,6 +259,26 @@ export default function AdminMeterEntry({ villageId, onSaved }) {
             <strong>{selectedHouse.ownerName}</strong>
             <span>{selectedHouse.phone}</span>
             <span>เลขมิเตอร์ล่าสุด: {selectedHouse.lastMeter}</span>
+            <div>
+              <p className="muted" style={{ margin: '4px 0 6px 0', fontSize: 13 }}>
+                รูปมิเตอร์เดือนก่อน ({previousMeterLabel})
+              </p>
+              {previousMeterImage ? (
+                <button
+                  type="button"
+                  onClick={() => setViewingImage(previousMeterImage)}
+                  style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                >
+                  <img
+                    src={previousMeterImage}
+                    alt="รูปมิเตอร์เดือนก่อน"
+                    style={{ maxWidth: 160, borderRadius: 8 }}
+                  />
+                </button>
+              ) : (
+                <span className="muted">ไม่มีรูป</span>
+              )}
+            </div>
           </div>
         )}
 
@@ -298,6 +345,37 @@ export default function AdminMeterEntry({ villageId, onSaved }) {
           {alreadyBilled ? 'จดแล้ว บันทึกซ้ำไม่ได้' : saving ? 'กำลังบันทึก...' : 'บันทึกและสร้างบิล'}
         </button>
       </form>
+
+      {viewingImage && (
+        <div
+          onClick={() => setViewingImage(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ maxWidth: '92vw', maxHeight: '92vh', textAlign: 'center' }}>
+            <img
+              src={viewingImage}
+              alt="รูปขยาย"
+              style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 10 }}
+            />
+            <button
+              type="button"
+              onClick={() => setViewingImage(null)}
+              style={{ marginTop: 14, padding: '8px 20px' }}
+            >
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
