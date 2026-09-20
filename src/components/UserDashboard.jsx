@@ -56,6 +56,11 @@ export default function UserDashboard({ villageId, houseId, refreshKey, onDataCh
     [unpaidBills]
   );
   const selectedBill = bills.find((b) => b.id === selectedBillId) || bills[0];
+  const selectedIndex = bills.findIndex((b) => b.id === selectedBill?.id);
+  // bills เรียงใหม่ไปเก่า ดังนั้นตัวถัดไปใน index คือเดือนก่อนหน้าตามเวลาจริง
+  const previousBill = selectedIndex >= 0 ? bills[selectedIndex + 1] : undefined;
+  const previousMeterImage = previousBill?.meterImage || house?.initialMeterImage || null;
+  const previousMeterLabel = previousBill ? previousBill.month : 'ก่อนเริ่มใช้ระบบ (รูปตั้งต้น)';
 
   const handleSlipUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -128,6 +133,54 @@ export default function UserDashboard({ villageId, houseId, refreshKey, onDataCh
             <span>ยอดชำระ</span>
             <strong>{selectedBill.amount.toLocaleString()} บาท</strong>
           </div>
+
+          {(selectedBill.meterImage || previousMeterImage) && (
+            <div className="house-card">
+              <strong>เทียบรูปมิเตอร์กับเดือนก่อน</strong>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 140px' }}>
+                  <p className="muted" style={{ margin: '0 0 6px 0', fontSize: 13 }}>
+                    {previousMeterLabel}
+                  </p>
+                  {previousMeterImage ? (
+                    <button
+                      type="button"
+                      onClick={() => setViewingSlip(previousMeterImage)}
+                      style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    >
+                      <img
+                        src={previousMeterImage}
+                        alt="รูปมิเตอร์เดือนก่อน"
+                        style={{ width: '100%', maxWidth: 160, borderRadius: 8 }}
+                      />
+                    </button>
+                  ) : (
+                    <span className="muted">ไม่มีรูป</span>
+                  )}
+                </div>
+                <div style={{ flex: '1 1 140px' }}>
+                  <p className="muted" style={{ margin: '0 0 6px 0', fontSize: 13 }}>
+                    {selectedBill.month} (เดือนนี้)
+                  </p>
+                  {selectedBill.meterImage ? (
+                    <button
+                      type="button"
+                      onClick={() => setViewingSlip(selectedBill.meterImage)}
+                      style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    >
+                      <img
+                        src={selectedBill.meterImage}
+                        alt="รูปมิเตอร์เดือนนี้"
+                        style={{ width: '100%', maxWidth: 160, borderRadius: 8 }}
+                      />
+                    </button>
+                  ) : (
+                    <span className="muted">ไม่มีรูป</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {selectedBill.status !== 'paid' && (
             <div className="payment-box">
