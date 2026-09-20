@@ -200,6 +200,10 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
                       <span className="muted" title="บิลที่ชำระแล้วแก้ไขไม่ได้">
                         แก้ไขไม่ได้
                       </span>
+                    ) : bill.status === 'pending' ? (
+                      <span className="muted" title="มีสลิปรอตรวจสอบอยู่ ต้องอนุมัติ/ตีกลับก่อนถึงจะแก้ไขได้">
+                        แก้ไขไม่ได้
+                      </span>
                     ) : (
                       <button className="secondary" onClick={() => setEditingBill(bill)}>
                         แก้ไข

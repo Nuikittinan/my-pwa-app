@@ -433,6 +433,9 @@ export async function updateMeterReading(villageId, billId, { currMeter, meterIm
   if (billRow.status === 'paid') {
     throw new Error('บิลนี้ชำระเงินแล้ว ไม่สามารถแก้ไขได้');
   }
+  if (billRow.status === 'pending') {
+    throw new Error('บิลนี้มีลูกบ้านแนบสลิปรอตรวจสอบอยู่ ไม่สามารถแก้ไขได้ กรุณาตรวจสลิปก่อน');
+  }
 
   const house = await getHouseById(villageId, billRow.house_id);
   if (!house) throw new Error('ไม่พบบ้านของบิลนี้');
