@@ -480,6 +480,8 @@ export async function updateMeterReading(villageId, billId, { currMeter, meterIm
 
   return toBill(savedBill, { ...house, lastMeter: current });
 }
+
+export async function savePaymentSlip(villageId, billId, slipImage) {
   requireVillageId(villageId);
   const { data, error } = await supabase
     .from('bills')
