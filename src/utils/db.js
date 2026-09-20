@@ -19,6 +19,7 @@ function toHouse(row) {
     phone: row.phone,
     password: row.password,
     lastMeter: Number(row.last_meter),
+    initialMeterImage: row.initial_meter_image || null,
   };
 }
 
@@ -238,8 +239,11 @@ export async function getHouseById(villageId, id) {
   return toHouse(data);
 }
 
-export async function addHouse(villageId, { houseNo, ownerName, phone, password, lastMeter }) {
+export async function addHouse(villageId, { houseNo, ownerName, phone, password, lastMeter, initialMeterImage }) {
   requireVillageId(villageId);
+  if (!initialMeterImage) {
+    throw new Error('กรุณาแนบรูปมิเตอร์ตั้งต้นของบ้านนี้');
+  }
   const payload = {
     village_id: villageId,
     house_no: houseNo.trim(),
@@ -247,6 +251,7 @@ export async function addHouse(villageId, { houseNo, ownerName, phone, password,
     phone: phone?.trim() || null,
     password: password?.trim() || '1234',
     last_meter: Number(lastMeter) || 0,
+    initial_meter_image: initialMeterImage,
   };
   const { data, error } = await supabase.from('houses').insert(payload).select().single();
   if (error?.code === '23505') throw new Error('มีเลขที่บ้านนี้อยู่แล้ว');
@@ -254,7 +259,7 @@ export async function addHouse(villageId, { houseNo, ownerName, phone, password,
   return toHouse(data);
 }
 
-export async function updateHouse(villageId, id, { houseNo, ownerName, phone, password, lastMeter }) {
+export async function updateHouse(villageId, id, { houseNo, ownerName, phone, password, lastMeter, initialMeterImage }) {
   requireVillageId(villageId);
   const payload = {};
   if (houseNo !== undefined) payload.house_no = houseNo.trim();
@@ -262,6 +267,7 @@ export async function updateHouse(villageId, id, { houseNo, ownerName, phone, pa
   if (phone !== undefined) payload.phone = phone?.trim() || null;
   if (password !== undefined && password.trim()) payload.password = password.trim();
   if (lastMeter !== undefined) payload.last_meter = Number(lastMeter) || 0;
+  if (initialMeterImage !== undefined) payload.initial_meter_image = initialMeterImage;
 
   const { data, error } = await supabase
     .from('houses')

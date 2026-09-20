@@ -80,6 +80,28 @@ export default function UserDashboard({ villageId, houseId, refreshKey, onDataCh
         </div>
       </div>
 
+      {house?.initialMeterImage && (
+        <div className="panel">
+          <div className="panel-title">
+            <h2>รูปมิเตอร์ตั้งต้นของบ้านนี้</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setViewingSlip(house.initialMeterImage)}
+            style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+          >
+            <img
+              src={house.initialMeterImage}
+              alt="รูปมิเตอร์ตั้งต้น"
+              style={{ maxWidth: 200, borderRadius: 8 }}
+            />
+          </button>
+          <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+            รูปอ้างอิงตอนลงทะเบียนบ้าน ใช้เทียบตอนมีข้อพิพาทเรื่องเลขมิเตอร์ได้
+          </p>
+        </div>
+      )}
+
       {unpaidBills.length > 1 && (
         <div className="notice error">
           มีบิลค้างชำระทั้งหมด {unpaidBills.length} รอบ รวม {totalOutstanding.toLocaleString()} บาท
@@ -177,7 +199,7 @@ export default function UserDashboard({ villageId, houseId, refreshKey, onDataCh
           <div style={{ maxWidth: '92vw', maxHeight: '92vh', textAlign: 'center' }}>
             <img
               src={viewingSlip}
-              alt="สลิปโอนเงิน (ขนาดเต็ม)"
+              alt="รูปขยาย"
               style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 10 }}
             />
             <button

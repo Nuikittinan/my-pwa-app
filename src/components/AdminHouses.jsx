@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { addHouse, deleteHouse, getAll, updateHouse } from '../utils/db';
+import { addHouse, deleteHouse, fileToDataUrl, getAll, updateHouse } from '../utils/db';
 
-const emptyForm = { houseNo: '', ownerName: '', phone: '', password: '', lastMeter: 0 };
+const emptyForm = { houseNo: '', ownerName: '', phone: '', password: '', lastMeter: 0, meterImage: null };
 
 export default function AdminHouses({ villageId, onDataChange }) {
   const [houses, setHouses] = useState([]);
@@ -10,6 +10,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [viewingImage, setViewingImage] = useState(null);
 
   const loadHouses = () => {
     setLoading(true);
@@ -33,15 +34,26 @@ export default function AdminHouses({ villageId, onDataChange }) {
   const handleChange = (field) => (event) =>
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
 
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) setForm((prev) => ({ ...prev, meterImage: await fileToDataUrl(file) }));
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+
+    if (!editingId && !form.meterImage) {
+      setError('กรุณาแนบรูปมิเตอร์ตั้งต้นของบ้านนี้ด้วย');
+      return;
+    }
+
     setSaving(true);
     try {
       if (editingId) {
-        await updateHouse(villageId, editingId, form);
+        await updateHouse(villageId, editingId, { ...form, initialMeterImage: form.meterImage });
       } else {
-        await addHouse(villageId, form);
+        await addHouse(villageId, { ...form, initialMeterImage: form.meterImage });
       }
       resetForm();
       loadHouses();
@@ -61,6 +73,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
       phone: house.phone || '',
       password: '',
       lastMeter: house.lastMeter,
+      meterImage: house.initialMeterImage || null,
     });
     setError('');
   };
@@ -126,6 +139,15 @@ export default function AdminHouses({ villageId, onDataChange }) {
           />
         </label>
 
+        <label>
+          รูปมิเตอร์ตั้งต้น {!editingId && <span style={{ color: '#ef4444' }}>*จำเป็น</span>}
+          <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} />
+        </label>
+
+        {form.meterImage && (
+          <img className="preview-image" src={form.meterImage} alt="รูปมิเตอร์ตั้งต้นที่เลือก" />
+        )}
+
         {error && <div className="notice error">{error}</div>}
 
         <div className="row-actions">
@@ -156,6 +178,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
                   <th>บ้าน</th>
                   <th>เบอร์โทร</th>
                   <th>เลขมิเตอร์ล่าสุด</th>
+                  <th>รูปมิเตอร์ตั้งต้น</th>
                   <th>จัดการ</th>
                 </tr>
               </thead>
@@ -168,6 +191,23 @@ export default function AdminHouses({ villageId, onDataChange }) {
                     </td>
                     <td>{house.phone || <span className="muted">ไม่มี</span>}</td>
                     <td>{house.lastMeter}</td>
+                    <td>
+                      {house.initialMeterImage ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewingImage(house.initialMeterImage)}
+                          style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                        >
+                          <img
+                            src={house.initialMeterImage}
+                            alt="รูปมิเตอร์ตั้งต้น"
+                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }}
+                          />
+                        </button>
+                      ) : (
+                        <span className="muted">ไม่มี</span>
+                      )}
+                    </td>
                     <td>
                       <div className="row-actions">
                         <button className="secondary" onClick={() => handleEdit(house)}>
@@ -185,7 +225,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
                 ))}
                 {houses.length === 0 && (
                   <tr>
-                    <td colSpan="4" className="empty">
+                    <td colSpan="5" className="empty">
                       ยังไม่มีบ้านในระบบ
                     </td>
                   </tr>
@@ -195,6 +235,37 @@ export default function AdminHouses({ villageId, onDataChange }) {
           </div>
         )}
       </div>
+
+      {viewingImage && (
+        <div
+          onClick={() => setViewingImage(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ maxWidth: '92vw', maxHeight: '92vh', textAlign: 'center' }}>
+            <img
+              src={viewingImage}
+              alt="รูปมิเตอร์ตั้งต้น (ขนาดเต็ม)"
+              style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 10 }}
+            />
+            <button
+              type="button"
+              onClick={() => setViewingImage(null)}
+              style={{ marginTop: 14, padding: '8px 20px' }}
+            >
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
