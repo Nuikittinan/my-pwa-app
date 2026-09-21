@@ -3,6 +3,7 @@ import AdminDashboard from './components/AdminDashboard';
 import AdminMeterEntry from './components/AdminMeterEntry';
 import AdminHouses from './components/AdminHouses';
 import AdminSettings from './components/AdminSettings';
+import AdminUsers from './components/AdminUsers';
 import UserDashboard from './components/UserDashboard';
 import Login from './components/Login';
 import { getSession, initializeAppData, logout } from './utils/auth';
@@ -37,7 +38,7 @@ function App() {
 
   const handleLoginSuccess = (newSession) => {
     setSession(newSession);
-    setActiveTab('dashboard');
+    setActiveTab(newSession.adminRole === 'meter_reader' ? 'meter' : 'dashboard');
   };
 
   const handleLogout = () => {
@@ -72,6 +73,22 @@ function App() {
     );
   }
 
+  const isMeterReaderOnly = session.adminRole === 'meter_reader';
+
+  if (isMeterReaderOnly) {
+    return (
+      <div className="app-shell">
+        <TopBar
+          title={`${session.villageName} — พนักงานจดมิเตอร์: ${session.name}`}
+          onLogout={handleLogout}
+        />
+        <main className="app-main">
+          <AdminMeterEntry villageId={session.villageId} onSaved={refreshData} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <TopBar title={`${session.villageName} — ผู้ดูแล: ${session.name}`} onLogout={handleLogout} />
@@ -92,6 +109,9 @@ function App() {
         <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
           ตั้งค่า
         </button>
+        <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>
+          ผู้ใช้งาน
+        </button>
       </nav>
 
       <main className="app-main">
@@ -106,6 +126,9 @@ function App() {
         )}
         {activeTab === 'settings' && (
           <AdminSettings villageId={session.villageId} onDataChange={refreshData} />
+        )}
+        {activeTab === 'users' && (
+          <AdminUsers villageId={session.villageId} currentUsername={session.username} />
         )}
       </main>
     </div>

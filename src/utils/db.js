@@ -31,6 +31,7 @@ function toAdmin(row) {
     username: row.username,
     password: row.password,
     name: row.name,
+    role: row.role || 'admin',
   };
 }
 
@@ -311,6 +312,56 @@ export async function getAdminByUsername(villageId, username) {
     .maybeSingle();
   throwIfError(error, 'โหลดข้อมูลผู้ดูแลไม่สำเร็จ');
   return toAdmin(data);
+}
+
+export async function getAdmins(villageId) {
+  requireVillageId(villageId);
+  const { data, error } = await supabase
+    .from('admins')
+    .select('*')
+    .eq('village_id', villageId)
+    .order('name');
+  throwIfError(error, 'โหลดรายชื่อผู้ใช้งานไม่สำเร็จ');
+  return data.map(toAdmin);
+}
+
+export async function addAdminAccount(villageId, { username, password, name, role }) {
+  requireVillageId(villageId);
+  const payload = {
+    village_id: villageId,
+    username: username?.trim(),
+    password: password?.trim(),
+    name: name?.trim(),
+    role: role === 'meter_reader' ? 'meter_reader' : 'admin',
+  };
+  if (!payload.username) throw new Error('กรุณากรอกชื่อผู้ใช้');
+  if (!payload.password || payload.password.length < 4) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
+  }
+  if (!payload.name) throw new Error('กรุณากรอกชื่อที่แสดงในแอป');
+
+  const { data, error } = await supabase.from('admins').insert(payload).select().single();
+  if (error?.code === '23505') throw new Error('มีชื่อผู้ใช้นี้อยู่แล้ว ลองตั้งชื่ออื่น');
+  throwIfError(error, 'เพิ่มผู้ใช้งานไม่สำเร็จ');
+  return toAdmin(data);
+}
+
+export async function deleteAdminAccount(villageId, id) {
+  requireVillageId(villageId);
+  // กันลบแอดมินคนสุดท้าย (role='admin') ของหมู่บ้าน เพราะจะทำให้ไม่มีใคร login เข้าจัดการระบบได้อีก
+  const { data: admins, error: listError } = await supabase
+    .from('admins')
+    .select('id, role')
+    .eq('village_id', villageId);
+  throwIfError(listError, 'ตรวจสอบรายชื่อผู้ดูแลไม่สำเร็จ');
+  const target = admins.find((a) => a.id === id);
+  const fullAdminCount = admins.filter((a) => (a.role || 'admin') === 'admin').length;
+  if (target && (target.role || 'admin') === 'admin' && fullAdminCount <= 1) {
+    throw new Error('ลบไม่ได้ เพราะเป็นบัญชีผู้ดูแลเต็มสิทธิ์คนสุดท้ายของหมู่บ้านนี้');
+  }
+
+  const { error } = await supabase.from('admins').delete().eq('village_id', villageId).eq('id', id);
+  throwIfError(error, 'ลบผู้ใช้งานไม่สำเร็จ');
 }
 
 export async function getBillsByHouseId(villageId, houseId) {

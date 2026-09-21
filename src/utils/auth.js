@@ -36,6 +36,7 @@ export async function loginAdmin(villageId, username, password) {
   const village = await getVillageById(villageId);
   return saveSession({
     role: 'admin',
+    adminRole: found.role || 'admin',
     villageId,
     villageName: village?.name || '',
     username: found.username,
