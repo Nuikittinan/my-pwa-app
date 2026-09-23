@@ -758,11 +758,48 @@ export async function importDatabase(villageId, payload) {
   }
 }
 
-export function fileToDataUrl(file) {
+/**
+ * แปลงไฟล์รูปเป็น base64 data URL พร้อม "ย่อขนาดและบีบอัด" ก่อนเสมอ
+ * เหตุผล: รูปจากกล้องมือถือหนัก 2-5 MB/รูป ถ้าเก็บดิบๆ ลง Postgres (เก็บเป็น base64
+ * text ในคอลัมน์) จะกิน database quota เร็วมาก (Supabase free tier มีแค่ 500 MB)
+ * ฟังก์ชันนี้ย่อรูปให้เหลือด้านยาวสุดไม่เกิน maxDimension แล้วบีบอัดเป็น JPEG
+ * คุณภาพ quality (0-1) ลดขนาดไฟล์ลงได้ ~90% โดยยังอ่านตัวเลขมิเตอร์/สลิปได้ชัดเจน
+ *
+ * ใช้ฟังก์ชันเดียวกันนี้ทุกจุดที่อัปโหลดรูปในแอป (จดมิเตอร์, แก้ไขบิล, รูปตั้งต้นบ้าน,
+ * สลิปโอนเงิน) เพราะทุกที่เรียก fileToDataUrl() ชื่อเดิม — ไม่ต้องแก้ไฟล์อื่นเลย
+ */
+export function fileToDataUrl(file, { maxDimension = 1280, quality = 0.75 } = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('ไม่สามารถอ่านไฟล์รูปภาพนี้ได้'));
+      img.onload = () => {
+        let { width, height } = img;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height / width) * maxDimension);
+            width = maxDimension;
+          } else {
+            width = Math.round((width / height) * maxDimension);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // ใช้ JPEG เสมอ (ไม่ใช่ PNG) เพราะรูปมิเตอร์/สลิปไม่ต้องการพื้นหลังโปร่งใส
+        // และ JPEG ไฟล์เล็กกว่า PNG มากสำหรับภาพถ่ายจริง
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
     reader.readAsDataURL(file);
   });
 }
