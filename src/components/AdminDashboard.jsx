@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import AdminUsageChart from './AdminUsageChart';
+import Pager from './Pager';
 import {
   exportDatabase,
   fileToDataUrl,
@@ -10,6 +11,8 @@ import {
   updateMeterReading,
 } from '../utils/db';
 
+const PAGE_SIZE = 20;
+
 export default function AdminDashboard({ villageId, refreshKey, onDataChange }) {
   const [data, setData] = useState(null);
   const [months, setMonths] = useState([]);
@@ -17,6 +20,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
   const [error, setError] = useState('');
   const [viewingSlip, setViewingSlip] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
+  const [page, setPage] = useState(1);
 
   // โหลดรายชื่อรอบบิลทั้งหมดที่มีอยู่ (ครั้งแรก + ทุกครั้งที่มีการเปลี่ยนแปลงข้อมูล)
   useEffect(() => {
@@ -39,6 +43,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
   useEffect(() => {
     if (!selectedMonth) return;
     let mounted = true;
+    setPage(1); // เปลี่ยนรอบบิล -> เริ่มดูจากหน้าแรกใหม่เสมอ
     getDashboardData(villageId, selectedMonth)
       .then((result) => {
         if (mounted) setData(result);
@@ -86,6 +91,12 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
   if (!data) return <div className="panel">กำลังโหลดข้อมูล...</div>;
 
   const { summary, bills } = data;
+  const totalPages = Math.max(1, Math.ceil(bills.length / PAGE_SIZE));
+  const pagedBills = bills.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  if (page > totalPages) {
+    // ป้องกันหน้าค้างเกินขอบเขตหลังข้อมูลเปลี่ยน (setState ระหว่าง render ปลอดภัยเพราะ React จะ re-render ให้เอง)
+    setPage(totalPages);
+  }
 
   return (
     <section className="stack">
@@ -156,7 +167,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
               </tr>
             </thead>
             <tbody>
-              {bills.map((bill) => (
+              {pagedBills.map((bill) => (
                 <tr key={bill.id}>
                   <td>
                     <strong>{bill.house?.houseNo}</strong>
@@ -236,6 +247,7 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
             </tbody>
           </table>
         </div>
+        <Pager page={page} totalPages={totalPages} onChange={setPage} />
       </div>
 
       <AdminUsageChart villageId={villageId} refreshKey={refreshKey} />

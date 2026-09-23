@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { addHouse, deleteHouse, fileToDataUrl, getAll, updateHouse } from '../utils/db';
+import Pager from './Pager';
+
+const PAGE_SIZE = 20;
 
 const emptyForm = { houseNo: '', ownerName: '', phone: '', password: '', lastMeter: 0, meterImage: null };
 
@@ -11,6 +14,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [viewingImage, setViewingImage] = useState(null);
+  const [page, setPage] = useState(1);
 
   const loadHouses = () => {
     setLoading(true);
@@ -24,6 +28,13 @@ export default function AdminHouses({ villageId, onDataChange }) {
     loadHouses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [villageId]);
+
+  const totalPages = Math.max(1, Math.ceil(houses.length / PAGE_SIZE));
+  // ถ้าลบบ้านจนหน้าปัจจุบันไม่มีข้อมูลแล้ว ให้ดีดกลับไปหน้าสุดท้ายที่ยังมีข้อมูล
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+  const pagedHouses = houses.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -185,7 +196,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
                 </tr>
               </thead>
               <tbody>
-                {houses.map((house) => (
+                {pagedHouses.map((house) => (
                   <tr key={house.id}>
                     <td>
                       <strong>{house.houseNo}</strong>
@@ -236,6 +247,7 @@ export default function AdminHouses({ villageId, onDataChange }) {
             </table>
           </div>
         )}
+        <Pager page={page} totalPages={totalPages} onChange={setPage} />
       </div>
 
       {viewingImage && (
