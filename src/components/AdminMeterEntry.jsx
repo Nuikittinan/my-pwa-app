@@ -40,7 +40,7 @@ function toLocalDatetimeValue(date) {
   )}:${pad(date.getMinutes())}`;
 }
 
-export default function AdminMeterEntry({ villageId, onSaved }) {
+export default function AdminMeterEntry({ villageId, refreshKey, onSaved }) {
   const [houses, setHouses] = useState([]);
   const [settings, setSettings] = useState(null);
   const [billedHouseIds, setBilledHouseIds] = useState(new Set());
@@ -92,6 +92,14 @@ export default function AdminMeterEntry({ villageId, onSaved }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [villageId]);
+
+  // เมื่อมีคนอื่น/เครื่องอื่นแก้ข้อมูล (realtime) -> อัปเดตสถานะ "จดแล้ว/ยังไม่จด" ให้สด
+  // โดยตั้งใจไม่แตะ selectedHouseId/currMeter ที่แอดมินกำลังกรอกอยู่ กันข้อมูลที่พิมพ์ค้างหาย
+  useEffect(() => {
+    if (!settings) return;
+    loadHousesAndStatus(settings.month);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const cycleChanged = settings
     ? `${THAI_MONTHS[monthIndex]} ${billYear}` !== settings.month

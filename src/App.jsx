@@ -7,6 +7,7 @@ import AdminUsers from './components/AdminUsers';
 import UserDashboard from './components/UserDashboard';
 import Login from './components/Login';
 import { getSession, initializeAppData, logout } from './utils/auth';
+import { subscribeToVillageChanges } from './utils/realtime';
 import './App.css';
 
 function App() {
@@ -35,6 +36,14 @@ function App() {
   }, []);
 
   const refreshData = () => setRefreshKey((value) => value + 1);
+
+  // ฟังการเปลี่ยนแปลงข้อมูลของหมู่บ้านนี้แบบเรียลไทม์ (คนอื่น/เครื่องอื่นแก้ข้อมูล
+  // จะรีเฟรชหน้าจอเราให้อัตโนมัติ) — subscribe ใหม่ทุกครั้งที่ล็อกอิน/เปลี่ยนหมู่บ้าน
+  useEffect(() => {
+    if (!session?.villageId) return undefined;
+    const unsubscribe = subscribeToVillageChanges(session.villageId, refreshData);
+    return unsubscribe;
+  }, [session?.villageId]);
 
   const handleLoginSuccess = (newSession) => {
     setSession(newSession);
@@ -83,7 +92,7 @@ function App() {
           onLogout={handleLogout}
         />
         <main className="app-main">
-          <AdminMeterEntry villageId={session.villageId} onSaved={refreshData} />
+          <AdminMeterEntry villageId={session.villageId} refreshKey={refreshKey} onSaved={refreshData} />
         </main>
       </div>
     );
@@ -119,7 +128,7 @@ function App() {
           <AdminDashboard villageId={session.villageId} refreshKey={refreshKey} onDataChange={refreshData} />
         )}
         {activeTab === 'meter' && (
-          <AdminMeterEntry villageId={session.villageId} onSaved={refreshData} />
+          <AdminMeterEntry villageId={session.villageId} refreshKey={refreshKey} onSaved={refreshData} />
         )}
         {activeTab === 'houses' && (
           <AdminHouses villageId={session.villageId} onDataChange={refreshData} />
