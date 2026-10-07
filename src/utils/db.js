@@ -3,7 +3,7 @@
 // ทุกฟังก์ชันที่อ่าน/เขียนข้อมูลของหมู่บ้าน จึงรับ villageId เป็นพารามิเตอร์แรกเสมอ
 // เพื่อกรองให้เห็น/แก้ไขได้แค่ข้อมูลของหมู่บ้านตัวเอง
 
-import { supabase } from './supabaseClient';
+import { createProvisioningClient, supabase } from './supabaseClient';
 
 const MONTH_LABEL_FALLBACK = 'กันยายน 2569';
 
@@ -115,8 +115,12 @@ function currentMonthLabel() {
 }
 
 /**
- * สมัครหมู่บ้านใหม่: สร้าง village + บัญชีแอดมินคนแรก + ค่าตั้งต้นของระบบ (settings)
- * ทำทีละขั้น พร้อม rollback ถ้าขั้นถัดไปล้มเหลว กันหมู่บ้าน "ลอย" ไม่มีแอดมินหรือ settings
+ * สมัครหมู่บ้านใหม่: สร้าง village + บัญชี Supabase Auth จริงของแอดมินคนแรก
+ * + แถวแอดมิน + ค่าตั้งต้นของระบบ (settings) ทำทีละขั้น พร้อม rollback ถ้าขั้นถัดไป
+ * ล้มเหลว กันหมู่บ้าน "ลอย" ไม่สมบูรณ์ค้างอยู่
+ *
+ * ใช้ supabase client หลัก (ไม่ใช่ provisioning client) ตอน signUp เพราะตอนนี้ยัง
+ * ไม่มีใคร login อยู่เลย — signUp จะ auto-login ให้ ซึ่งเป็นผลที่ต้องการพอดี
  */
 export async function createVillage({ villageName, adminName, adminUsername, adminPassword }) {
   const trimmedVillageName = villageName?.trim();
@@ -127,8 +131,8 @@ export async function createVillage({ villageName, adminName, adminUsername, adm
   if (!trimmedVillageName) throw new Error('กรุณากรอกชื่อหมู่บ้าน');
   if (!trimmedAdminName) throw new Error('กรุณากรอกชื่อผู้ดูแล');
   if (!trimmedUsername) throw new Error('กรุณากรอกชื่อผู้ใช้สำหรับเข้าสู่ระบบ');
-  if (!trimmedPassword || trimmedPassword.length < 4) {
-    throw new Error('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
+  if (!trimmedPassword || trimmedPassword.length < 6) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
   }
 
   const { data: villageRow, error: villageError } = await supabase
@@ -141,16 +145,45 @@ export async function createVillage({ villageName, adminName, adminUsername, adm
 
   const villageId = villageRow.id;
 
-  const { error: adminError } = await supabase.from('admins').insert({
-    village_id: villageId,
-    username: trimmedUsername,
-    password: trimmedPassword,
-    name: trimmedAdminName,
-  });
+  // สร้าง id เองฝั่ง client (แทนที่จะให้ database generate ให้) เพราะตอนนี้ผู้สมัคร
+  // ยัง "ไม่ได้ login" เลย (ไม่มี auth.uid()) ถ้า insert แล้วเรียก .select() อ่านค่า
+  // กลับมาแบบเดิม จะโดนบล็อกด้วย SELECT policy ของ admins (ซึ่งต้องมี auth_user_id
+  // ผูกไว้ก่อนถึงจะมองเห็นตัวเอง) เท่ากับ RETURNING ของ insert เองก็ติด RLS ไปด้วย —
+  // รู้ id ล่วงหน้าเองเลยไม่ต้องพึ่ง RETURNING ตรงนี้
+  const adminId = crypto.randomUUID();
+
+  const { error: adminError } = await supabase
+    .from('admins')
+    .insert({ id: adminId, village_id: villageId, username: trimmedUsername, name: trimmedAdminName, role: 'admin' });
   if (adminError) {
     await supabase.from('villages').delete().eq('id', villageId); // rollback
     if (adminError.code === '23505') throw new Error('มีชื่อผู้ใช้นี้อยู่แล้ว ลองตั้งชื่ออื่น');
     throw new Error(adminError.message || 'สร้างบัญชีผู้ดูแลไม่สำเร็จ');
+  }
+
+  const email = `${adminId}@staff.internal`;
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password: trimmedPassword,
+  });
+  if (authError || !authData.user) {
+    await supabase.rpc('delete_unlinked_admin', { p_admin_id: adminId }); // rollback
+    await supabase.from('villages').delete().eq('id', villageId);
+    throw new Error(authError?.message || 'สร้างบัญชีเข้าสู่ระบบไม่สำเร็จ');
+  }
+
+  // ผูก auth_user_id ผ่าน RPC (security definer) เพราะตอนนี้ก็ยังไม่ได้ login
+  // อยู่ดี (signUp แค่สร้างบัญชี ยังไม่ auto-attach session ให้ client จนกว่าจะ
+  // resolve the promise กลับมา — ใช้ RPC ที่ข้าม RLS ได้แทน ปลอดภัยเพราะ RPC เช็ค
+  // auth_user_id is null ก่อนผูกเสมอ กันไม่ให้ไปแก้บัญชีคนอื่น)
+  const { data: linked, error: linkError } = await supabase.rpc('link_admin_auth_user', {
+    p_admin_id: adminId,
+    p_auth_user_id: authData.user.id,
+  });
+  if (linkError || !linked) {
+    await supabase.rpc('delete_unlinked_admin', { p_admin_id: adminId }); // rollback
+    await supabase.from('villages').delete().eq('id', villageId);
+    throw new Error('ผูกบัญชีผู้ดูแลไม่สำเร็จ');
   }
 
   const { error: settingsError } = await supabase.from('settings').insert({
@@ -161,8 +194,10 @@ export async function createVillage({ villageName, adminName, adminUsername, adm
     promptpay_no: '',
   });
   if (settingsError) {
-    // rollback ทั้งหมด กันหมู่บ้านที่สร้างไม่สมบูรณ์ค้างอยู่
-    await supabase.from('admins').delete().eq('village_id', villageId);
+    // rollback ทั้งหมด กันหมู่บ้านที่สร้างไม่สมบูรณ์ค้างอยู่ — ตอนนี้ linked แล้ว
+    // (auth_user_id ไม่ null แล้ว) เลยลบผ่าน table ปกติได้เลย ไม่ต้องใช้ RPC
+    // (ลบแถวแอดมินก่อนเสมอ เพราะ policy ลบหมู่บ้านอนุญาตเฉพาะหมู่บ้านที่ "ไม่มีแอดมินแล้ว")
+    await supabase.from('admins').delete().eq('id', adminId);
     await supabase.from('villages').delete().eq('id', villageId);
     throw new Error(settingsError.message || 'ตั้งค่าเริ่มต้นของหมู่บ้านไม่สำเร็จ');
   }
@@ -245,28 +280,60 @@ export async function addHouse(villageId, { houseNo, ownerName, phone, password,
   if (!initialMeterImage) {
     throw new Error('กรุณาแนบรูปมิเตอร์ตั้งต้นของบ้านนี้');
   }
+  const trimmedPassword = password?.trim() || '1234';
+  if (trimmedPassword.length < 6) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+  }
+
   const payload = {
     village_id: villageId,
     house_no: houseNo.trim(),
     owner_name: ownerName.trim(),
     phone: phone?.trim() || null,
-    password: password?.trim() || '1234',
     last_meter: Number(lastMeter) || 0,
     initial_meter_image: initialMeterImage,
   };
-  const { data, error } = await supabase.from('houses').insert(payload).select().single();
+  const { data: houseRow, error } = await supabase.from('houses').insert(payload).select().single();
   if (error?.code === '23505') throw new Error('มีเลขที่บ้านนี้อยู่แล้ว');
   throwIfError(error, 'เพิ่มบ้านไม่สำเร็จ');
-  return toHouse(data);
+
+  // ใช้ provisioning client (แยกต่างหาก ไม่แตะ session ของแอดมินที่ login ค้างอยู่)
+  // สร้างบัญชี Supabase Auth จริงให้บ้านนี้ login ได้
+  const email = `${houseRow.id}@resident.internal`;
+  const provisioningClient = createProvisioningClient();
+  const { data: authData, error: authError } = await provisioningClient.auth.signUp({
+    email,
+    password: trimmedPassword,
+  });
+  if (authError || !authData.user) {
+    await supabase.from('houses').delete().eq('id', houseRow.id); // rollback
+    throw new Error(authError?.message || 'สร้างบัญชี login ของบ้านนี้ไม่สำเร็จ');
+  }
+
+  const { data: linkedHouse, error: linkError } = await supabase
+    .from('houses')
+    .update({ auth_user_id: authData.user.id })
+    .eq('id', houseRow.id)
+    .select()
+    .single();
+  if (linkError) {
+    await supabase.from('houses').delete().eq('id', houseRow.id); // rollback
+    throw new Error('ผูกบัญชี login ของบ้านนี้ไม่สำเร็จ');
+  }
+
+  return toHouse(linkedHouse);
 }
 
-export async function updateHouse(villageId, id, { houseNo, ownerName, phone, password, lastMeter, initialMeterImage }) {
+// หมายเหตุ: แก้ไข "รหัสผ่าน" ของบ้านจากหน้านี้ไม่ได้อีกต่อไป เพราะรหัสผ่านตอนนี้
+// เก็บอยู่ใน Supabase Auth (เข้ารหัสไว้) การจะรีเซ็ตรหัสผ่านแทนเจ้าของบัญชีต้องใช้
+// service_role key (ฝั่ง backend เท่านั้น) — ถ้าลูกบ้านลืมรหัสผ่าน ต้องลบบ้านนี้แล้ว
+// เพิ่มใหม่ (จะได้ auth_user_id/อีเมลใหม่ ตั้งรหัสผ่านใหม่ได้ตอนเพิ่ม)
+export async function updateHouse(villageId, id, { houseNo, ownerName, phone, lastMeter, initialMeterImage }) {
   requireVillageId(villageId);
   const payload = {};
   if (houseNo !== undefined) payload.house_no = houseNo.trim();
   if (ownerName !== undefined) payload.owner_name = ownerName.trim();
   if (phone !== undefined) payload.phone = phone?.trim() || null;
-  if (password !== undefined && password.trim()) payload.password = password.trim();
   if (lastMeter !== undefined) payload.last_meter = Number(lastMeter) || 0;
   if (initialMeterImage !== undefined) payload.initial_meter_image = initialMeterImage;
 
@@ -302,6 +369,36 @@ export async function getHouseByHouseNo(villageId, houseNo) {
   return toHouse(data);
 }
 
+/** หาโปรไฟล์แอดมิน/พนักงาน จาก auth.uid() ปัจจุบัน — ใช้ตอนเปิดแอปใหม่ (restore session) */
+export async function getMyAdminProfile() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase
+    .from('admins')
+    .select('*')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+  throwIfError(error, 'โหลดโปรไฟล์ผู้ดูแลไม่สำเร็จ');
+  return toAdmin(data);
+}
+
+/** หาโปรไฟล์บ้าน จาก auth.uid() ปัจจุบัน — ใช้ตอนเปิดแอปใหม่ (restore session) */
+export async function getMyHouseProfile() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase
+    .from('houses')
+    .select('*')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+  throwIfError(error, 'โหลดโปรไฟล์บ้านไม่สำเร็จ');
+  return toHouse(data);
+}
+
 export async function getAdminByUsername(villageId, username) {
   requireVillageId(villageId);
   const { data, error } = await supabase
@@ -327,23 +424,47 @@ export async function getAdmins(villageId) {
 
 export async function addAdminAccount(villageId, { username, password, name, role }) {
   requireVillageId(villageId);
+  const trimmedPassword = password?.trim();
   const payload = {
     village_id: villageId,
     username: username?.trim(),
-    password: password?.trim(),
     name: name?.trim(),
     role: role === 'meter_reader' ? 'meter_reader' : 'admin',
   };
   if (!payload.username) throw new Error('กรุณากรอกชื่อผู้ใช้');
-  if (!payload.password || payload.password.length < 4) {
-    throw new Error('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
+  if (!trimmedPassword || trimmedPassword.length < 6) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
   }
   if (!payload.name) throw new Error('กรุณากรอกชื่อที่แสดงในแอป');
 
-  const { data, error } = await supabase.from('admins').insert(payload).select().single();
+  const { data: adminRow, error } = await supabase.from('admins').insert(payload).select().single();
   if (error?.code === '23505') throw new Error('มีชื่อผู้ใช้นี้อยู่แล้ว ลองตั้งชื่ออื่น');
   throwIfError(error, 'เพิ่มผู้ใช้งานไม่สำเร็จ');
-  return toAdmin(data);
+
+  // ใช้ provisioning client แยก (ไม่แตะ session ของแอดมินที่กำลังสร้างบัญชีนี้อยู่)
+  const email = `${adminRow.id}@staff.internal`;
+  const provisioningClient = createProvisioningClient();
+  const { data: authData, error: authError } = await provisioningClient.auth.signUp({
+    email,
+    password: trimmedPassword,
+  });
+  if (authError || !authData.user) {
+    await supabase.from('admins').delete().eq('id', adminRow.id); // rollback
+    throw new Error(authError?.message || 'สร้างบัญชี login ไม่สำเร็จ');
+  }
+
+  const { data: linkedAdmin, error: linkError } = await supabase
+    .from('admins')
+    .update({ auth_user_id: authData.user.id })
+    .eq('id', adminRow.id)
+    .select()
+    .single();
+  if (linkError) {
+    await supabase.from('admins').delete().eq('id', adminRow.id); // rollback
+    throw new Error('ผูกบัญชี login ไม่สำเร็จ');
+  }
+
+  return toAdmin(linkedAdmin);
 }
 
 export async function deleteAdminAccount(villageId, id) {

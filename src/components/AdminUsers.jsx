@@ -84,7 +84,7 @@ export default function AdminUsers({ villageId, currentUsername }) {
             type="password"
             value={form.password}
             onChange={handleChange('password')}
-            placeholder="อย่างน้อย 4 ตัวอักษร"
+            placeholder="อย่างน้อย 6 ตัวอักษร"
             required
           />
         </label>

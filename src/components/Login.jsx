@@ -160,11 +160,6 @@ export default function Login({ onLoginSuccess }) {
           + สมัครหมู่บ้านใหม่
         </button>
 
-        <p style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: 10 }}>
-          {mode === 'admin'
-            ? 'ทดลองใช้: admin / admin123'
-            : 'ทดลองใช้: 99/1 / 1234'}
-        </p>
       </div>
     </div>
   );
@@ -243,7 +238,7 @@ function SignupCard({ onBack, onSignedUp }) {
             type="password"
             value={adminPassword}
             onChange={(e) => setAdminPassword(e.target.value)}
-            placeholder="อย่างน้อย 4 ตัวอักษร"
+            placeholder="อย่างน้อย 6 ตัวอักษร"
             required
             style={inputStyle}
           />

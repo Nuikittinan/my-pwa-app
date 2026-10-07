@@ -21,8 +21,9 @@ function App() {
 
     async function bootstrap() {
       await initializeAppData();
+      const existing = await getSession();
       if (!mounted) return;
-      setSession(getSession());
+      setSession(existing);
       setCheckingSession(false);
     }
 
@@ -51,8 +52,7 @@ function App() {
   };
 
   const handleLogout = () => {
-    logout();
-    setSession(null);
+    logout().finally(() => setSession(null));
   };
 
   if (checkingSession) {

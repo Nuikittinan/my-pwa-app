@@ -133,14 +133,21 @@ export default function AdminHouses({ villageId, onDataChange }) {
           <input value={form.phone} onChange={handleChange('phone')} placeholder="ไม่บังคับ" />
         </label>
 
-        <label>
-          รหัสผ่าน (สำหรับลูกบ้าน login)
-          <input
-            value={form.password}
-            onChange={handleChange('password')}
-            placeholder={editingId ? 'เว้นว่างไว้ถ้าไม่เปลี่ยน' : 'ค่าเริ่มต้น 1234'}
-          />
-        </label>
+        {editingId ? (
+          <p className="muted" style={{ margin: 0 }}>
+            เปลี่ยนรหัสผ่านจากหน้านี้ไม่ได้ (ถ้าลืมรหัสผ่าน ต้องลบบ้านนี้แล้วเพิ่มใหม่)
+          </p>
+        ) : (
+          <label>
+            รหัสผ่าน (สำหรับลูกบ้าน login)
+            <input
+              value={form.password}
+              onChange={handleChange('password')}
+              placeholder="อย่างน้อย 6 ตัวอักษร"
+              required
+            />
+          </label>
+        )}
 
         <label>
           เลขมิเตอร์เริ่มต้น / ล่าสุด
