@@ -100,52 +100,45 @@ export default function AdminDashboard({ villageId, refreshKey, onDataChange }) 
 
   return (
     <section className="stack">
-      <div className="section-heading">
-        <div>
-          <h1>สรุปค่าน้ำประปา</h1>
-          <p>
-            รอบบิล {summary.month}
-            {summary.isCurrentMonth ? ' (รอบปัจจุบัน)' : ' (รอบที่ผ่านมา)'}
-          </p>
+      <div className="dashboard-header">
+        <div className="dashboard-heading-copy">
+          <span className="dashboard-eyebrow">WATER MANAGEMENT OVERVIEW</span>
+          <h1>ภาพรวมการจัดการค่าน้ำ</h1>
+          <p>ติดตามการจดมิเตอร์ การเรียกเก็บ และสถานะการชำระในหน้าเดียว</p>
+          <div className="dashboard-month-chip">รอบบิล {summary.month} · {summary.isCurrentMonth ? 'รอบปัจจุบัน' : 'รอบย้อนหลัง'}</div>
         </div>
-        <div className="actions">
+        <div className="dashboard-toolbar">
           {months.length > 1 && (
-            <select
-              value={selectedMonth || ''}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              style={{
-                padding: '8px 12px',
-                borderRadius: 8,
-                border: '1px solid #cbd5e1',
-                background: '#fff',
-              }}
-            >
-              {[...months].reverse().map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
+            <select className="dashboard-month-select" value={selectedMonth || ''} onChange={(e) => setSelectedMonth(e.target.value)} aria-label="เลือกรอบบิล">
+              {[...months].reverse().map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           )}
-          <button className="secondary" onClick={handleExport}>
-            สำรองข้อมูล
-          </button>
-          <label className="file-button">
-            นำเข้าข้อมูล
+          <button className="secondary dashboard-action" onClick={handleExport}>↓ สำรองข้อมูล</button>
+          <label className="file-button dashboard-action">
+            ↑ นำเข้าข้อมูล
             <input type="file" accept="application/json" onChange={handleImport} />
           </label>
         </div>
       </div>
-
-      <div className="metric-grid">
-        <Metric label="บ้านทั้งหมด" value={summary.totalHouses} />
-        <Metric label="จดมิเตอร์แล้ว" value={summary.recorded} />
-        {summary.isCurrentMonth && <Metric label="ยังไม่ได้จด" value={summary.pending} />}
-        <Metric label="รอตรวจสลิป" value={summary.waitingReview} />
-        <Metric label="ยอดเรียกเก็บ" value={`${summary.totalBilled.toLocaleString()} บาท`} />
-        <Metric label="ค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} บาท`} tone="warning" />
+      <div className="dashboard-kpi-grid">
+        <Metric icon="⌂" label="บ้านทั้งหมด" value={summary.totalHouses.toLocaleString()} detail="จำนวนบ้านในระบบ" accent="blue" />
+        <Metric icon="✓" label="จดมิเตอร์แล้ว" value={summary.recorded.toLocaleString()} detail={`จาก ${summary.totalHouses.toLocaleString()} บ้าน`} accent="green" />
+        {summary.isCurrentMonth && <Metric icon="◷" label="ยังไม่ได้จด" value={summary.pending.toLocaleString()} detail="บ้านที่รอจดมิเตอร์" accent="amber" />}
+        <Metric icon="▣" label="รอตรวจสลิป" value={summary.waitingReview.toLocaleString()} detail="รายการรออนุมัติ" accent="violet" />
+        <Metric icon="฿" label="ยอดเรียกเก็บ" value={`${summary.totalBilled.toLocaleString()} ฿`} detail="ยอดรวมรอบบิลนี้" accent="sky" />
+        <Metric icon="!" label="ยอดค้างชำระ" value={`${summary.totalUnpaid.toLocaleString()} ฿`} detail="รวมยอดที่ยังไม่ชำระ" accent="rose" />
       </div>
-
+      <div className="dashboard-progress-panel">
+        <div className="dashboard-progress-head"><strong>ความคืบหน้าการจดมิเตอร์</strong><span>{summary.totalHouses ? Math.round((summary.recorded / summary.totalHouses) * 100) : 0}%</span></div>
+        <div className="dashboard-progress-track"><div className="dashboard-progress-fill" style={{ width: `${summary.totalHouses ? Math.min(100, (summary.recorded / summary.totalHouses) * 100) : 0}%` }} /></div>
+        <div className="dashboard-progress-caption"><span>จดแล้ว {summary.recorded.toLocaleString()} บ้าน</span><span>เหลือ {summary.pending.toLocaleString()} บ้าน</span></div>
+      </div>
+      <div className="dashboard-quick-actions">
+        <div><strong>สรุปงานที่ต้องติดตาม</strong><span>สถานะของรอบบิลที่เลือก</span></div>
+        <div className="dashboard-quick-pill">▤ บิลทั้งหมด {bills.length} รายการ</div>
+        <div className="dashboard-quick-pill">✓ รอตรวจสลิป {summary.waitingReview} รายการ</div>
+        <button className="secondary dashboard-quick-button" onClick={handleExport}>↓ สำรองข้อมูล</button>
+      </div>
       <div className="panel">
         <div className="panel-title">
           <h2>รายการบิล</h2>
@@ -412,11 +405,12 @@ function EditBillModal({ villageId, bill, onClose, onSaved }) {
   );
 }
 
-function Metric({ label, value, tone = 'normal' }) {
+function Metric({ icon, label, value, detail, accent = 'blue' }) {
   return (
-    <div className={`metric ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className={`dashboard-kpi dashboard-kpi-${accent}`}>
+      <div className="dashboard-kpi-top"><span className="dashboard-kpi-icon">{icon}</span><span className="dashboard-kpi-label">{label}</span></div>
+      <strong className="dashboard-kpi-value">{value}</strong>
+      <span className="dashboard-kpi-detail">{detail}</span>
     </div>
   );
 }
