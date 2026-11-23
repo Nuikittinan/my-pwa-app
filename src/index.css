@@ -27,6 +27,7 @@ body { margin: 0; background: var(--page); color: var(--ink); }
 a { color: var(--brand); font-weight: 650; text-decoration: none; }
 a:hover { color: var(--brand-strong); text-decoration: underline; }
 h1, h2, h3, p { margin-top: 0; }
-button, input, select, textarea { font: inherit; }utton, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(37, 99, 235, .24); outline-offset: 2px; }
 #root { min-height: 100svh; }
